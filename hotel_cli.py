@@ -5,7 +5,8 @@ import readline
 from hotel_simulator import HotelSimulator
 from database import HotelDatabase
 from simulation_engine import HotelSimulationEngine
-from reporting_system import HotelReportingSystem
+from reporting_system import HotelReportingSystem, ReportConfig, ReportType, TimePeriod
+from datetime import datetime
 class HotelCLI(cmd.Cmd):
     """Interactive command-line interface for Hotel Simulator"""
     
@@ -43,6 +44,102 @@ class HotelCLI(cmd.Cmd):
                 print("No hotels found.")
         except Exception as e:
             print(f"Error: {e}")
+    
+    def do_daily_report(self, arg):
+        """Generate daily status report: daily_report <hotel_id> [YYYY-MM-DD]"""
+        try:
+            args = arg.split()
+            if len(args) < 1:
+                print("Usage: daily_report <hotel_id> [YYYY-MM-DD]")
+                print("Example: daily_report 1 2026-02-01")
+                return
+            
+            hotel_id = int(args[0])
+            date = args[1] if len(args) > 1 else None
+            
+            # Validate date format if provided
+            if date:
+                try:
+                    datetime.strptime(date, '%Y-%m-%d')
+                except ValueError:
+                    print(f"❌ Invalid date format: {date}")
+                    print("📅 Date should be in YYYY-MM-DD format. Example: 2026-02-01")
+                    return
+            
+            # Create report configuration
+            config = ReportConfig(
+                report_type=ReportType.DAILY_STATUS,
+                time_period=TimePeriod.DAILY,
+                hotel_id=hotel_id,
+                specific_date=date
+            )
+            
+            # Generate report
+            report = self.reporter.generate_report(config)
+            result = self.reporter.display_report(report, "text")
+            print(result)
+            
+        except Exception as e:
+            print(f"❌ Error: {e}")
+    
+    def do_occupancy_report(self, arg):
+        """Generate occupancy analysis report: occupancy_report <hotel_id> [time_period] [start_date] [end_date]"""
+        try:
+            args = arg.split()
+            if len(args) < 1:
+                print("Usage: occupancy_report <hotel_id> [time_period] [start_date] [end_date]")
+                print("Example: occupancy_report 1 weekly")
+                print("Example: occupancy_report 1 custom 2026-01-01 2026-01-31")
+                return
+            
+            hotel_id = int(args[0])
+            
+            # Parse time period (default: monthly)
+            time_period = TimePeriod.MONTHLY
+            if len(args) > 1:
+                period_arg = args[1].upper()
+                if period_arg in ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY', 'CUSTOM']:
+                    time_period = TimePeriod[period_arg]
+                else:
+                    print(f"❌ Invalid time period: {args[1]}")
+                    print("Valid periods: daily, weekly, monthly, quarterly, yearly, custom")
+                    return
+            
+            # Parse dates for custom period
+            start_date = None
+            end_date = None
+            if time_period == TimePeriod.CUSTOM:
+                if len(args) < 4:
+                    print("❌ Custom period requires start_date and end_date")
+                    print("Usage: occupancy_report <hotel_id> custom YYYY-MM-DD YYYY-MM-DD")
+                    return
+                
+                try:
+                    start_date = args[2]
+                    end_date = args[3]
+                    datetime.strptime(start_date, '%Y-%m-%d')
+                    datetime.strptime(end_date, '%Y-%m-%d')
+                except ValueError as e:
+                    print(f"❌ Invalid date format: {e}")
+                    print("📅 Date should be in YYYY-MM-DD format. Example: 2026-02-01")
+                    return
+            
+            # Create report configuration
+            config = ReportConfig(
+                report_type=ReportType.OCCUPANCY_ANALYSIS,
+                time_period=time_period,
+                hotel_id=hotel_id,
+                start_date=start_date,
+                end_date=end_date
+            )
+            
+            # Generate report
+            report = self.reporter.generate_report(config)
+            result = self.reporter.display_report(report, "text")
+            print(result)
+            
+        except Exception as e:
+            print(f"❌ Error: {e}")
     
     def do_hotel_info(self, arg):
         """Get hotel information: hotel_info <hotel_id>"""
