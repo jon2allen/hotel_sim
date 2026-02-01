@@ -24,14 +24,19 @@ from database import HotelDatabase
 class SimulationConfig:
     """Configuration for hotel simulation"""
     # Probability settings (0.0 - 1.0)
-    new_reservation_probability: float = 0.3
-    check_in_probability: float = 0.4
-    check_out_probability: float = 0.35
-    cancellation_probability: float = 0.05
-    early_checkout_probability: float = 0.1
-    late_checkout_probability: float = 0.15
-    housekeeping_delay_probability: float = 0.02
-    maintenance_issue_probability: float = 0.01
+    new_reservation_probability: float = 0.5  # Increased from 0.3
+    check_in_probability: float = 0.6  # Increased from 0.4
+    check_out_probability: float = 0.5  # Increased from 0.35
+    cancellation_probability: float = 0.08  # Increased from 0.05
+    early_checkout_probability: float = 0.15  # Increased from 0.1
+    late_checkout_probability: float = 0.2  # Increased from 0.15
+    housekeeping_delay_probability: float = 0.05  # Increased from 0.02
+    maintenance_issue_probability: float = 0.03  # Increased from 0.01
+    walk_in_guest_probability: float = 0.2  # New: Walk-in guests
+    group_booking_probability: float = 0.15  # New: Group bookings
+    extended_stay_probability: float = 0.2  # New: Extended stays
+    loyalty_member_probability: float = 0.3  # New: Loyalty members
+    special_request_probability: float = 0.25  # New: Special requests
     
     # Guest behavior
     average_stay_days: Tuple[int, int] = (1, 7)  # min, max
@@ -76,6 +81,11 @@ class SimulationResults:
     total_reservations: int = 0
     total_revenue: float = 0.0
     total_cancellations: int = 0
+    total_walk_ins: int = 0
+    total_group_bookings: int = 0
+    total_extended_stays: int = 0
+    total_loyalty_bookings: int = 0
+    total_special_requests: int = 0
     occupancy_rate: float = 0.0
     events: List[SimulationEvent] = None
     
@@ -119,9 +129,34 @@ class HotelSimulationEngine:
         self.results = SimulationResults()
         self.results.total_days = days
         
-        # Generate guest names for simulation
-        first_names = ['John', 'Jane', 'Michael', 'Sarah', 'David', 'Emily', 'Robert', 'Jennifer']
-        last_names = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Miller', 'Davis', 'Wilson']
+        # Generate guest names for simulation - expanded list
+        first_names = [
+            'John', 'Jane', 'Michael', 'Sarah', 'David', 'Emily', 'Robert', 'Jennifer',
+            'William', 'Lisa', 'Thomas', 'Jessica', 'Daniel', 'Amanda', 'Christopher', 'Melissa',
+            'Matthew', 'Nicole', 'Andrew', 'Stephanie', 'James', 'Rebecca', 'Joshua', 'Laura',
+            'Kevin', 'Heather', 'Brian', 'Michelle', 'Timothy', 'Christina', 'Jason', 'Elizabeth',
+            'Ryan', 'Katherine', 'Jacob', 'Samantha', 'Gary', 'Ashley', 'Nicholas', 'Megan'
+        ]
+        last_names = [
+            'Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Miller', 'Davis', 'Wilson',
+            'Taylor', 'Anderson', 'Thomas', 'Jackson', 'White', 'Harris', 'Martin', 'Thompson',
+            'Garcia', 'Martinez', 'Robinson', 'Clark', 'Rodriguez', 'Lewis', 'Lee', 'Walker',
+            'Hall', 'Allen', 'Young', 'Hernandez', 'King', 'Wright', 'Lopez', 'Hill'
+        ]
+        
+        # Add some international names for diversity
+        international_first_names = [
+            'Carlos', 'Maria', 'Wei', 'Li', 'Pierre', 'Sophie', 'Hans', 'Anna',
+            'Yuki', 'Hiro', 'Aisha', 'Mohammed', 'Luca', 'Giovanna', 'Ivan', 'Olga'
+        ]
+        international_last_names = [
+            'Gonzalez', 'Rodriguez', 'Wang', 'Zhang', 'Dubois', 'Muller', 'Tanaka', 'Ivanov',
+            'Khan', 'Rossi', 'Silva', 'Kim', 'Patel', 'Nguyen', 'Chen', 'Wong'
+        ]
+        
+        # Combine all names
+        all_first_names = first_names + international_first_names
+        all_last_names = last_names + international_last_names
         
         for day in range(1, days + 1):
             self.current_date += datetime.timedelta(days=1)
@@ -183,10 +218,10 @@ class HotelSimulationEngine:
                     stay_days = random.randint(*self.config.average_stay_days)
                     check_out = (self.current_date + datetime.timedelta(days=stay_days)).strftime("%Y-%m-%d")
                     
-                    # Create guest
+                    # Create guest with expanded name pool
                     guest = self.simulator.create_guest(
-                        first_name=random.choice(first_names),
-                        last_name=random.choice(last_names),
+                        first_name=random.choice(all_first_names),
+                        last_name=random.choice(all_last_names),
                         email=f"guest{self.guest_counter}@example.com"
                     )
                     self.guest_counter += 1
@@ -212,7 +247,243 @@ class HotelSimulationEngine:
                     if verbose:
                         print(f"📝 New Reservation: {guest.first_name} {guest.last_name} → Room {room.room_number} (${reservation.total_price})")
             
-            # 4. Random cancellations
+            # 4. Walk-in guests (same-day bookings)
+            if random.random() < self.config.walk_in_guest_probability:
+                available_rooms = self.simulator.find_available_rooms(check_in=date_str)
+                if available_rooms:
+                    room = random.choice(available_rooms)
+                    stay_days = random.randint(1, 3)  # Shorter stays for walk-ins
+                    check_out = (self.current_date + datetime.timedelta(days=stay_days)).strftime("%Y-%m-%d")
+                     
+                    # Create guest
+                    guest = self.simulator.create_guest(
+                        first_name=random.choice(all_first_names),
+                        last_name=random.choice(all_last_names),
+                        email=f"walkin{self.guest_counter}@example.com"
+                    )
+                    self.guest_counter += 1
+                    self.results.total_guests += 1
+                    
+                    # Create reservation
+                    reservation = self.reservation_system.create_reservation(
+                        self.simulator, guest, room, date_str, check_out
+                    )
+                    self.results.total_reservations += 1
+                    
+                    event = SimulationEvent(
+                        day=day,
+                        time=self._random_time('14:00', '20:00'),
+                        event_type="walk_in_booking",
+                        description=f"Walk-in booking: {guest.first_name} {guest.last_name} → Room {room.room_number}",
+                        amount=reservation.total_price,
+                        guest_id=guest.id,
+                        room_number=room.room_number,
+                        reservation_id=reservation.id
+                    )
+                    self.results.events.append(event)
+                    self.results.total_walk_ins += 1
+                    if verbose:
+                        print(f"🚶 Walk-in Booking: {guest.first_name} {guest.last_name} → Room {room.room_number} (${reservation.total_price})")
+            
+            # 5. Group bookings (multiple rooms)
+            if random.random() < self.config.group_booking_probability:
+                available_rooms = self.simulator.find_available_rooms(check_in=date_str)
+                if len(available_rooms) >= 3:  # Need at least 3 rooms for a group
+                    group_size = random.randint(3, min(6, len(available_rooms)))  # 3-6 rooms
+                    selected_rooms = random.sample(available_rooms, group_size)
+                    stay_days = random.randint(2, 5)
+                    check_out = (self.current_date + datetime.timedelta(days=stay_days)).strftime("%Y-%m-%d")
+                    
+                    # Create group leader
+                    group_leader = self.simulator.create_guest(
+                        first_name=random.choice(all_first_names),
+                        last_name=random.choice(all_last_names),
+                        email=f"group{self.guest_counter}@example.com"
+                    )
+                    self.guest_counter += 1
+                    self.results.total_guests += group_size
+                    
+                    total_group_price = 0
+                    group_rooms = []
+                    
+                    # Create reservations for each room in the group
+                    for room in selected_rooms:
+                        reservation = self.reservation_system.create_reservation(
+                            self.simulator, group_leader, room, date_str, check_out
+                        )
+                        total_group_price += reservation.total_price
+                        self.results.total_reservations += 1
+                        group_rooms.append(room.room_number)
+                    
+                    event = SimulationEvent(
+                        day=day,
+                        time=self._random_time('10:00', '16:00'),
+                        event_type="group_booking",
+                        description=f"Group booking: {group_leader.first_name} {group_leader.last_name} → {group_size} rooms",
+                        amount=total_group_price,
+                        guest_id=group_leader.id,
+                        room_number=", ".join(group_rooms),
+                        reservation_id=None
+                    )
+                    self.results.events.append(event)
+                    self.results.total_group_bookings += 1
+                    if verbose:
+                        print(f"👥 Group Booking: {group_leader.first_name} {group_leader.last_name} → {group_size} rooms (${total_group_price})")
+            
+            # 6. Extended stays (longer reservations)
+            if random.random() < self.config.extended_stay_probability:
+                available_rooms = self.simulator.find_available_rooms(check_in=date_str)
+                if available_rooms:
+                    room = random.choice(available_rooms)
+                    stay_days = random.randint(7, 14)  # 1-2 weeks
+                    check_out = (self.current_date + datetime.timedelta(days=stay_days)).strftime("%Y-%m-%d")
+                    
+                    # Create guest
+                    guest = self.simulator.create_guest(
+                        first_name=random.choice(all_first_names),
+                        last_name=random.choice(all_last_names),
+                        email=f"extended{self.guest_counter}@example.com"
+                    )
+                    self.guest_counter += 1
+                    self.results.total_guests += 1
+                    
+                    # Create reservation
+                    reservation = self.reservation_system.create_reservation(
+                        self.simulator, guest, room, date_str, check_out
+                    )
+                    self.results.total_reservations += 1
+                    
+                    event = SimulationEvent(
+                        day=day,
+                        time=self._random_time('09:00', '17:00'),
+                        event_type="extended_stay",
+                        description=f"Extended stay: {guest.first_name} {guest.last_name} → Room {room.room_number} ({stay_days} nights)",
+                        amount=reservation.total_price,
+                        guest_id=guest.id,
+                        room_number=room.room_number,
+                        reservation_id=reservation.id
+                    )
+                    self.results.events.append(event)
+                    self.results.total_extended_stays += 1
+                    if verbose:
+                        print(f"🏖️ Extended Stay: {guest.first_name} {guest.last_name} → Room {room.room_number} ({stay_days} nights, ${reservation.total_price})")
+            
+            # 7. Loyalty member bookings (higher probability, discounts)
+            if random.random() < self.config.loyalty_member_probability:
+                available_rooms = self.simulator.find_available_rooms(check_in=date_str)
+                if available_rooms:
+                    room = random.choice(available_rooms)
+                    stay_days = random.randint(2, 5)
+                    check_out = (self.current_date + datetime.timedelta(days=stay_days)).strftime("%Y-%m-%d")
+                    
+                    # Create loyalty member guest
+                    guest = self.simulator.create_guest(
+                        first_name=random.choice(all_first_names),
+                        last_name=random.choice(all_last_names),
+                        email=f"loyalty{self.guest_counter}@example.com"
+                    )
+                    self.guest_counter += 1
+                    self.results.total_guests += 1
+                    
+                    # Create reservation with loyalty discount
+                    reservation = self.reservation_system.create_reservation(
+                        self.simulator, guest, room, date_str, check_out
+                    )
+                    # Apply loyalty discount
+                    discount_amount = reservation.total_price * self.config.loyalty_discount
+                    discounted_price = reservation.total_price - discount_amount
+                    
+                    self.results.total_reservations += 1
+                    
+                    event = SimulationEvent(
+                        day=day,
+                        time=self._random_time('09:00', '17:00'),
+                        event_type="loyalty_booking",
+                        description=f"Loyalty booking: {guest.first_name} {guest.last_name} → Room {room.room_number} (${discounted_price:.2f} with discount)",
+                        amount=discounted_price,
+                        guest_id=guest.id,
+                        room_number=room.room_number,
+                        reservation_id=reservation.id
+                    )
+                    self.results.events.append(event)
+                    self.results.total_loyalty_bookings += 1
+                    if verbose:
+                        print(f"💎 Loyalty Booking: {guest.first_name} {guest.last_name} → Room {room.room_number} (${discounted_price:.2f} with discount)")
+            
+            # 8. Special requests (room upgrades, late checkouts, etc.)
+            if random.random() < self.config.special_request_probability:
+                # Find guests who are currently checked in
+                checked_in_guests = self._get_checked_in_guests(date_str)
+                if checked_in_guests:
+                    guest_id, room_num, res_id = random.choice(checked_in_guests)
+                    
+                    # Randomly select type of special request
+                    request_type = random.choice(['upgrade', 'late_checkout', 'extra_amenities', 'room_service'])
+                    
+                    if request_type == 'upgrade':
+                        # Room upgrade request
+                        event = SimulationEvent(
+                            day=day,
+                            time=self._random_time('10:00', '18:00'),
+                            event_type="special_request",
+                            description=f"Room upgrade request: Guest {guest_id} in Room {room_num}",
+                            amount=50.00,  # Upgrade fee
+                            guest_id=guest_id,
+                            room_number=room_num,
+                            reservation_id=res_id
+                        )
+                        if verbose:
+                            print(f"📈 Special Request: Guest {guest_id} requested room upgrade (Room {room_num})")
+                    
+                    elif request_type == 'late_checkout':
+                        # Late checkout request
+                        event = SimulationEvent(
+                            day=day,
+                            time=self._random_time('08:00', '12:00'),
+                            event_type="special_request",
+                            description=f"Late checkout request: Guest {guest_id} in Room {room_num}",
+                            amount=25.00,  # Late checkout fee
+                            guest_id=guest_id,
+                            room_number=room_num,
+                            reservation_id=res_id
+                        )
+                        if verbose:
+                            print(f"⏰ Special Request: Guest {guest_id} requested late checkout (Room {room_num})")
+                    
+                    elif request_type == 'extra_amenities':
+                        # Extra amenities request
+                        event = SimulationEvent(
+                            day=day,
+                            time=self._random_time('09:00', '20:00'),
+                            event_type="special_request",
+                            description=f"Extra amenities request: Guest {guest_id} in Room {room_num}",
+                            amount=35.00,  # Amenities fee
+                            guest_id=guest_id,
+                            room_number=room_num,
+                            reservation_id=res_id
+                        )
+                        if verbose:
+                            print(f"🛎️ Special Request: Guest {guest_id} requested extra amenities (Room {room_num})")
+                    
+                    else:  # room_service
+                        # Room service request
+                        event = SimulationEvent(
+                            day=day,
+                            time=self._random_time('18:00', '22:00'),
+                            event_type="special_request",
+                            description=f"Room service request: Guest {guest_id} in Room {room_num}",
+                            amount=45.00,  # Room service fee
+                            guest_id=guest_id,
+                            room_number=room_num,
+                            reservation_id=res_id
+                        )
+                        if verbose:
+                            print(f"🍽️ Special Request: Guest {guest_id} ordered room service (Room {room_num})")
+                    
+                    self.results.events.append(event)
+                    self.results.total_special_requests += 1
+            
+            # 9. Random cancellations
             active_reservations = self._get_active_reservations(date_str)
             for res_id, guest_id, room_num in active_reservations:
                 if random.random() < self.config.cancellation_probability:
@@ -304,6 +575,23 @@ class HotelSimulationEngine:
             print(f"Error getting active reservations: {e}")
             return []
     
+    def _get_checked_in_guests(self, date: str) -> List[Tuple[int, str, int]]:
+        """Get guests who are currently checked in"""
+        try:
+            query = """
+                SELECT r.id, r.guest_id, rm.room_number
+                FROM reservations r
+                JOIN rooms rm ON r.room_id = rm.id
+                WHERE r.status = 'checked_in'
+                AND r.check_out_date >= ?
+                AND rm.hotel_id = ?
+            """
+            results = self.db.execute_query(query, (date, self.hotel_id), fetch=True)
+            return [(row['guest_id'], row['room_number'], row['id']) for row in results]
+        except Exception as e:
+            print(f"Error getting checked-in guests: {e}")
+            return []
+    
     def _random_time(self, start: str, end: str) -> str:
         """Generate random time between start and end"""
         start_h, start_m = map(int, start.split(':'))
@@ -325,6 +613,11 @@ class HotelSimulationEngine:
         guests_per_day = results.total_guests / results.total_days if results.total_days > 0 else 0
         reservations_per_day = results.total_reservations / results.total_days if results.total_days > 0 else 0
         cancellation_rate = results.total_cancellations / results.total_reservations if results.total_reservations > 0 else 0
+        walk_in_rate = results.total_walk_ins / results.total_reservations if results.total_reservations > 0 else 0
+        group_booking_rate = results.total_group_bookings / results.total_reservations if results.total_reservations > 0 else 0
+        extended_stay_rate = results.total_extended_stays / results.total_reservations if results.total_reservations > 0 else 0
+        loyalty_booking_rate = results.total_loyalty_bookings / results.total_reservations if results.total_reservations > 0 else 0
+        special_requests_per_guest = results.total_special_requests / results.total_guests if results.total_guests > 0 else 0
         
         # Event type breakdown
         event_types = defaultdict(int)
@@ -345,6 +638,16 @@ class HotelSimulationEngine:
             'reservations_per_day': round(reservations_per_day, 2),
             'total_cancellations': results.total_cancellations,
             'cancellation_rate': round(cancellation_rate * 100, 2),
+            'walk_in_rate': round(walk_in_rate * 100, 2),
+            'group_booking_rate': round(group_booking_rate * 100, 2),
+            'extended_stay_rate': round(extended_stay_rate * 100, 2),
+            'loyalty_booking_rate': round(loyalty_booking_rate * 100, 2),
+            'special_requests_per_guest': round(special_requests_per_guest, 2),
+            'total_walk_ins': results.total_walk_ins,
+            'total_group_bookings': results.total_group_bookings,
+            'total_extended_stays': results.total_extended_stays,
+            'total_loyalty_bookings': results.total_loyalty_bookings,
+            'total_special_requests': results.total_special_requests,
             'average_occupancy': round(results.occupancy_rate, 2),
             'event_breakdown': dict(event_types),
             'revenue_breakdown': {k: round(v, 2) for k, v in revenue_by_type.items()},
