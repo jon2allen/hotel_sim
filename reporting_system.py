@@ -786,8 +786,8 @@ class HotelReportingSystem:
                 # Validate specific date format (YYYY-MM-DD)
                 if not self._is_valid_date_format(config.specific_date):
                     raise ValueError(
-                        f"Invalid date format: {config.specific_date}\"
-                        f"Date should be in YYYY-MM-DD format. Example: \"2026-02-01\"
+                        f"Invalid date format: {config.specific_date}"
+                        f"Date should be in YYYY-MM-DD format. Example: '2026-02-01'"
                     )
             # Daily status reports can use specific_date or default to today
             return
@@ -802,13 +802,13 @@ class HotelReportingSystem:
                     )
                 if not self._is_valid_date_format(config.start_date):
                     raise ValueError(
-                        f"Invalid start_date format: {config.start_date}\"
-                        f"Date should be in YYYY-MM-DD format. Example: \"2026-02-01\"
+                        f"Invalid start_date format: {config.start_date}"
+                        f"Date should be in YYYY-MM-DD format. Example: '2026-02-01'"
                     )
                 if not self._is_valid_date_format(config.end_date):
                     raise ValueError(
-                        f"Invalid end_date format: {config.end_date}\"
-                        f"Date should be in YYYY-MM-DD format. Example: \"2026-02-01\"
+                        f"Invalid end_date format: {config.end_date}"
+                        f"Date should be in YYYY-MM-DD format. Example: '2026-02-01'"
                     )
                 
                 # Validate date range
