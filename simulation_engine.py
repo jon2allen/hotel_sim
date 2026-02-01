@@ -278,6 +278,27 @@ class HotelSimulationEngine:
                     self.results.events.append(event)
                     if verbose:
                         print(f"💰 Check-out: Guest {guest_id} ← Room {room_num} (${amount})")
+
+            # 2b. Process overdue check-outs (reservations that should have been checked out on previous days)
+            overdue_check_outs = self._get_overdue_check_outs(date_str)
+            for res_id, guest_id, room_num in overdue_check_outs:
+                success, amount = self.reservation_system.check_out(res_id)
+                if success:
+                    daily_revenue += amount
+                    self.results.total_revenue += amount
+                    event = SimulationEvent(
+                        day=day,
+                        time=self._random_time(*self.config.check_out_time_range),
+                        event_type="check_out",
+                        description=f"Guest checked out of room {room_num} (overdue)",
+                        amount=amount,
+                        guest_id=guest_id,
+                        room_number=room_num,
+                        reservation_id=res_id
+                    )
+                    self.results.events.append(event)
+                    if verbose:
+                        print(f"💰 Check-out: Guest {guest_id} ← Room {room_num} (${amount}) (overdue)")
             
             # 3. Generate new reservations (random events)
             if random.random() < self.config.new_reservation_probability:
@@ -574,6 +595,9 @@ class HotelSimulationEngine:
             # 5. Update daily metrics
             self.results.total_revenue += daily_revenue
             
+            # 5. Synchronize room and reservation statuses
+            self._synchronize_reservation_statuses(date_str)
+            
             # 6. Get daily status
             status = self.reporter.get_hotel_status(self.hotel_id)
             if status:
@@ -626,6 +650,23 @@ class HotelSimulationEngine:
             return [(row['id'], row['guest_id'], row['room_number']) for row in results]
         except Exception as e:
             print(f"Error getting overdue check-ins: {e}")
+            return []
+
+    def _get_overdue_check_outs(self, date: str) -> List[Tuple[int, int, str]]:
+        """Get reservations that should have been checked out on previous days"""
+        try:
+            query = """
+                SELECT r.id, r.guest_id, rm.room_number
+                FROM reservations r
+                JOIN rooms rm ON r.room_id = rm.id
+                WHERE r.check_out_date < ?
+                AND r.status = 'checked_in'
+                AND rm.hotel_id = ?
+            """
+            results = self.db.execute_query(query, (date, self.hotel_id), fetch=True)
+            return [(row['id'], row['guest_id'], row['room_number']) for row in results]
+        except Exception as e:
+            print(f"Error getting overdue check-outs: {e}")
             return []
     
     def _get_scheduled_check_outs(self, date: str) -> List[Tuple[int, int, str]]:
@@ -831,6 +872,64 @@ class HotelSimulationEngine:
             return round(process.memory_info().rss / 1024 / 1024, 2)
         except ImportError:
             return 0.0  # psutil not available
+
+    def _synchronize_reservation_statuses(self, date: str) -> None:
+        """Synchronize room and reservation statuses to ensure consistency"""
+        try:
+            # Fix rooms that are marked as occupied but don't have checked-in guests
+            query = """
+                UPDATE rooms 
+                SET status = 'available' 
+                WHERE id IN (
+                    SELECT rm.id 
+                    FROM rooms rm
+                    LEFT JOIN reservations r ON rm.id = r.room_id 
+                        AND r.status = 'checked_in'
+                        AND r.check_in_date <= ?
+                        AND r.check_out_date >= ?
+                    WHERE rm.hotel_id = ?
+                    AND rm.status = 'occupied'
+                    AND r.id IS NULL
+                )
+            """
+            self.db.execute_query(query, (date, date, self.hotel_id))
+            
+            # Fix rooms that should be reserved but are marked as available
+            query = """
+                UPDATE rooms 
+                SET status = 'reserved' 
+                WHERE id IN (
+                    SELECT rm.id 
+                    FROM rooms rm
+                    JOIN reservations r ON rm.id = r.room_id
+                    WHERE rm.hotel_id = ?
+                    AND rm.status = 'available'
+                    AND r.status = 'confirmed'
+                    AND r.check_in_date <= ?
+                    AND r.check_out_date >= ?
+                )
+            """
+            self.db.execute_query(query, (self.hotel_id, date, date))
+            
+            # Fix rooms that should be occupied but are marked as reserved
+            query = """
+                UPDATE rooms 
+                SET status = 'occupied' 
+                WHERE id IN (
+                    SELECT rm.id 
+                    FROM rooms rm
+                    JOIN reservations r ON rm.id = r.room_id
+                    WHERE rm.hotel_id = ?
+                    AND rm.status = 'reserved'
+                    AND r.status = 'checked_in'
+                    AND r.check_in_date <= ?
+                    AND r.check_out_date >= ?
+                )
+            """
+            self.db.execute_query(query, (self.hotel_id, date, date))
+            
+        except Exception as e:
+            print(f"Error synchronizing reservation statuses: {e}")
 
 
 class AdvancedSimulationEngine(HotelSimulationEngine):
