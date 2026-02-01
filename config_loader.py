@@ -16,6 +16,7 @@ class SimulationConfig:
     min_occupancy_percent: float
     max_occupancy_percent: float
     cancellation_rate: float
+    cancellation_probability: float
     walk_in_probability: float
     group_booking_probability: float
     loyalty_member_probability: float
@@ -82,6 +83,7 @@ class ConfigLoader:
             min_occupancy_percent=sim.get('min_occupancy_percent', 60.0),
             max_occupancy_percent=sim.get('max_occupancy_percent', 90.0),
             cancellation_rate=sim.get('cancellation_rate', 0.05),
+            cancellation_probability=sim.get('cancellation_probability', 0.08),
             walk_in_probability=sim.get('walk_in_probability', 0.2),
             group_booking_probability=sim.get('group_booking_probability', 0.15),
             loyalty_member_probability=sim.get('loyalty_member_probability', 0.3),
@@ -116,6 +118,7 @@ class ConfigLoader:
             min_occupancy_percent=60.0,
             max_occupancy_percent=90.0,
             cancellation_rate=0.05,
+            cancellation_probability=0.08,
             walk_in_probability=0.2,
             group_booking_probability=0.15,
             loyalty_member_probability=0.3,

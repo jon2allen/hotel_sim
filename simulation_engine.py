@@ -29,6 +29,7 @@ class SimulationConfig:
     
     # Transaction parameters
     cancellation_rate: float = 0.05  # Only 5% of reservations are cancelled
+    cancellation_probability: float = 0.08  # 8% chance of cancellation (was 5%)
     walk_in_probability: float = 0.2  # 20% chance of walk-in guests
     group_booking_probability: float = 0.15  # 15% chance of group bookings
     loyalty_member_probability: float = 0.3  # 30% chance of loyalty member bookings

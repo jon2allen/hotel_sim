@@ -8,6 +8,7 @@ max_occupancy_percent = 90.0   # Maximum target occupancy percentage
 
 # Transaction parameters
 cancellation_rate = 0.05       # Only 5% of reservations are cancelled (not 25%)
+cancellation_probability = 0.08 # 8% chance of cancellation (was 5%)
 walk_in_probability = 0.2      # 20% chance of walk-in guests
 group_booking_probability = 0.15 # 15% chance of group bookings
 loyalty_member_probability = 0.3 # 30% chance of loyalty member bookings
