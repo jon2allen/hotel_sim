@@ -288,6 +288,10 @@ class HotelCLI(cmd.Cmd):
     def do_financial_report(self, arg):
         """Get financial report: financial_report <hotel_id> [time_period] [start_date] [end_date]"""
         try:
+            # Import at the beginning of the method
+            from reporting_system import ReportConfig, ReportType, TimePeriod
+            from datetime import datetime
+            
             # Parse arguments similar to occupancy_report
             parts = arg.split()
             if len(parts) < 1:
@@ -323,15 +327,12 @@ class HotelCLI(cmd.Cmd):
                         try:
                             start_date = parts[2]
                             end_date = parts[3]
-                            from datetime import datetime
                             datetime.strptime(start_date, '%Y-%m-%d')
                             datetime.strptime(end_date, '%Y-%m-%d')
                         except ValueError as e:
                             print(f"❌ Invalid date format: {e}")
                             print("📅 Date should be in YYYY-MM-DD format. Example: 2026-02-01")
                             return
-            
-            from reporting_system import ReportConfig, ReportType, TimePeriod
             config = ReportConfig(
                 report_type=ReportType.FINANCIAL_SUMMARY,
                 time_period=time_period,
