@@ -32,6 +32,8 @@ class SimulationConfig:
     walk_in_probability: float = 0.2  # 20% chance of walk-in guests
     group_booking_probability: float = 0.15  # 15% chance of group bookings
     loyalty_member_probability: float = 0.3  # 30% chance of loyalty member bookings
+    extended_stay_probability: float = 0.2  # 20% chance of extended stays (1-2 weeks)
+    special_request_probability: float = 0.25  # 25% chance of special requests
     
     # Event probabilities (per day)
     new_reservation_probability: float = 0.5
@@ -295,7 +297,7 @@ class HotelSimulationEngine:
                         print(f"📝 New Reservation: {guest.first_name} {guest.last_name} → Room {room.room_number} (${reservation.total_price})")
             
             # 4. Walk-in guests (same-day bookings)
-            if random.random() < self.config.walk_in_guest_probability:
+            if random.random() < self.config.walk_in_probability:
                 available_rooms = self.simulator.find_available_rooms(check_in=date_str)
                 if available_rooms:
                     room = random.choice(available_rooms)

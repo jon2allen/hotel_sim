@@ -1,0 +1,53 @@
+# Hotel Simulator Configuration
+# This file controls the simulation parameters
+
+[simulation]
+# Occupancy range - the simulation will try to achieve occupancy within this range
+min_occupancy_percent = 60.0   # Minimum target occupancy percentage
+max_occupancy_percent = 90.0   # Maximum target occupancy percentage
+
+# Transaction parameters
+cancellation_rate = 0.05       # Only 5% of reservations are cancelled (not 25%)
+walk_in_probability = 0.2      # 20% chance of walk-in guests
+group_booking_probability = 0.15 # 15% chance of group bookings
+loyalty_member_probability = 0.3 # 30% chance of loyalty member bookings
+extended_stay_probability = 0.2  # 20% chance of extended stays (1-2 weeks)
+special_request_probability = 0.25 # 25% chance of special requests
+
+# Event probabilities (per day)
+new_reservation_probability = 0.5
+check_in_probability = 0.6
+check_out_probability = 0.5
+
+# Guest behavior
+average_stay_days_min = 1
+average_stay_days_max = 7
+
+# Pricing
+seasonal_price_variation = 0.2
+weekend_price_multiplier = 1.15
+loyalty_discount = 0.1
+
+# Room distribution
+room_types = [
+    { name = "Standard", base_price = 120.00, weight = 0.5 },
+    { name = "Deluxe", base_price = 180.00, weight = 0.3 },
+    { name = "Suite", base_price = 300.00, weight = 0.2 }
+]
+
+[hotel]
+# Default hotel configuration
+total_rooms = 100
+total_floors = 5
+room_distribution = "balanced"  # balanced, luxury, budget
+
+[guest]
+# Guest name diversity
+guest_name_count = 50
+international_guest_percentage = 0.2
+
+[financial]
+# Revenue targets and pricing strategy
+revenue_goal_daily = 10000.00
+tax_rate = 0.10
+service_fee = 0.05

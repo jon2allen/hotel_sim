@@ -442,11 +442,33 @@ class HotelReportingSystem:
         """, (config.hotel_id, start_date, end_date))
         avg_stay_length = cursor.fetchone()['avg_stay_length'] or 0.0
         
+        # Calculate average occupancy rate from daily data
+        total_occupied = 0
+        total_available = 0
+        for day_data in daily_data:
+            # Get room counts for this date
+            cursor.execute("""
+                SELECT 
+                    SUM(CASE WHEN status = 'occupied' THEN 1 ELSE 0 END) as occupied,
+                    COUNT(*) as total
+                FROM rooms 
+                WHERE hotel_id = ?
+            """, (config.hotel_id,))
+            room_counts = cursor.fetchone()
+            occupied = room_counts['occupied'] or 0
+            total = room_counts['total'] or 1  # Avoid division by zero
+            
+            total_occupied += occupied
+            total_available += total
+        
+        average_occupancy_rate = (total_occupied / total_available * 100) if total_available > 0 else 0
+        
         data = {
             'period': {'start_date': start_date, 'end_date': end_date},
             'daily_occupancy': daily_data,
             'occupancy_by_room_type': occupancy_by_type,
-            'average_stay_length': avg_stay_length
+            'average_stay_length': avg_stay_length,
+            'average_occupancy_rate': average_occupancy_rate
         }
         
         summary = {
