@@ -300,21 +300,6 @@ class HotelCLI(cmd.Cmd):
         except Exception as e:
             print(f"Error: {e}")
     
-    def do_occupancy_report(self, arg):
-        """Get occupancy report: occupancy_report <hotel_id>"""
-        try:
-            hotel_id = int(arg.strip())
-            from reporting_system import ReportConfig, ReportType, TimePeriod
-            config = ReportConfig(
-                report_type=ReportType.OCCUPANCY_ANALYSIS,
-                time_period=TimePeriod.DAILY,
-                hotel_id=hotel_id
-            )
-            report = self.reporter.generate_report(config)
-            print(self.reporter.display_report(report))
-        except Exception as e:
-            print(f"Error: {e}")
-    
     def do_create_hotel_interactive(self, arg):
         """Interactive hotel creation wizard - guides you through creating a complete hotel with rooms, floors, and pricing"""
         try:
