@@ -85,44 +85,87 @@ class HotelCLI(cmd.Cmd):
     def do_occupancy_report(self, arg):
         """Generate occupancy analysis report: occupancy_report <hotel_id> [time_period] [start_date] [end_date]"""
         try:
-            args = arg.split()
-            if len(args) < 1:
+            # Improved argument parsing to handle various formats
+            parts = arg.split()
+            if len(parts) < 1:
                 print("Usage: occupancy_report <hotel_id> [time_period] [start_date] [end_date]")
                 print("Example: occupancy_report 1 weekly")
                 print("Example: occupancy_report 1 custom 2026-01-01 2026-01-31")
                 return
             
-            hotel_id = int(args[0])
+            # Extract hotel_id (first argument)
+            try:
+                hotel_id = int(parts[0])
+            except ValueError:
+                print(f"❌ Invalid hotel ID: {parts[0]}")
+                return
+            
+            # Parse remaining arguments
+            remaining_args = parts[1:]
             
             # Parse time period (default: monthly)
             time_period = TimePeriod.MONTHLY
-            if len(args) > 1:
-                period_arg = args[1].upper()
-                if period_arg in ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY', 'CUSTOM']:
-                    time_period = TimePeriod[period_arg]
-                else:
-                    print(f"❌ Invalid time period: {args[1]}")
-                    print("Valid periods: daily, weekly, monthly, quarterly, yearly, custom")
-                    return
-            
-            # Parse dates for custom period
             start_date = None
             end_date = None
+            
+            if remaining_args:
+                # Check if first remaining arg is a time period
+                period_arg = remaining_args[0].upper()
+                if period_arg in ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY', 'CUSTOM']:
+                    time_period = TimePeriod[period_arg]
+                    remaining_args = remaining_args[1:]  # Remove time period from args
+                else:
+                    # First arg might be a date, default to daily period
+                    time_period = TimePeriod.DAILY
+            
+            # Parse dates for custom period
             if time_period == TimePeriod.CUSTOM:
-                if len(args) < 4:
+                if len(remaining_args) < 2:
                     print("❌ Custom period requires start_date and end_date")
                     print("Usage: occupancy_report <hotel_id> custom YYYY-MM-DD YYYY-MM-DD")
                     return
                 
                 try:
-                    start_date = args[2]
-                    end_date = args[3]
+                    start_date = remaining_args[0]
+                    end_date = remaining_args[1]
                     datetime.strptime(start_date, '%Y-%m-%d')
                     datetime.strptime(end_date, '%Y-%m-%d')
                 except ValueError as e:
                     print(f"❌ Invalid date format: {e}")
                     print("📅 Date should be in YYYY-MM-DD format. Example: 2026-02-01")
                     return
+            elif remaining_args:
+                # For non-custom periods, remaining args might be dates for daily period
+                if time_period == TimePeriod.DAILY and len(remaining_args) >= 1:
+                    try:
+                        # Treat as specific date for daily report
+                        specific_date = remaining_args[0]
+                        datetime.strptime(specific_date, '%Y-%m-%d')
+                        # For daily occupancy, we can use a single day range
+                        start_date = specific_date
+                        end_date = specific_date
+                        time_period = TimePeriod.CUSTOM
+                    except ValueError as e:
+                        print(f"❌ Invalid date format: {e}")
+                        print("📅 Date should be in YYYY-MM-DD format. Example: 2026-02-01")
+                        return
+            
+            # Create report configuration
+            config = ReportConfig(
+                report_type=ReportType.OCCUPANCY_ANALYSIS,
+                time_period=time_period,
+                hotel_id=hotel_id,
+                start_date=start_date,
+                end_date=end_date
+            )
+            
+            # Generate report
+            report = self.reporter.generate_report(config)
+            result = self.reporter.display_report(report, "text")
+            print(result)
+            
+        except Exception as e:
+            print(f"❌ Error: {e}")
             
             # Create report configuration
             config = ReportConfig(
