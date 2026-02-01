@@ -166,6 +166,7 @@ class HotelReportingSystem:
             SELECT 
                 COUNT(*) as total_reservations,
                 SUM(CASE WHEN status = 'checked_in' THEN 1 ELSE 0 END) as checked_in,
+                SUM(CASE WHEN status = 'checked_out' THEN 1 ELSE 0 END) as checked_out,
                 SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
                 SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
             FROM reservations 
