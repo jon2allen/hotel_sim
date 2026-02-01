@@ -149,12 +149,13 @@ class HotelSimulationEngine:
         if not self.simulator.load_hotel(hotel_id):
             raise ValueError(f"Failed to load hotel {hotel_id}")
     
-    def run_simulation(self, days: int = 30, verbose: bool = True) -> SimulationResults:
+    def run_simulation(self, days: int = 30, verbose: bool = True, start_date: str = None) -> SimulationResults:
         """Run simulation for specified number of days
         
         Args:
             days: Number of days to simulate
             verbose: Whether to print progress
+            start_date: Optional start date in YYYY-MM-DD format
             
         Returns:
             SimulationResults object with statistics
@@ -221,7 +222,7 @@ class HotelSimulationEngine:
             # Get current occupancy
             current_occupied = self._get_current_occupancy(date_str)
             
-            # 1. Process scheduled check-ins
+            # 1. Process scheduled check-ins (for today's date)
             check_ins = self._get_scheduled_check_ins(date_str)
             for res_id, guest_id, room_num in check_ins:
                 if self.reservation_system.check_in(res_id):
@@ -238,6 +239,24 @@ class HotelSimulationEngine:
                     self.results.events.append(event)
                     if verbose:
                         print(f"✅ Check-in: Guest {guest_id} → Room {room_num}")
+
+            # 1b. Process overdue check-ins (reservations that should have been checked in on previous days)
+            overdue_check_ins = self._get_overdue_check_ins(date_str)
+            for res_id, guest_id, room_num in overdue_check_ins:
+                if self.reservation_system.check_in(res_id):
+                    daily_guests += 1
+                    event = SimulationEvent(
+                        day=day,
+                        time=self._random_time(*self.config.check_in_time_range),
+                        event_type="check_in",
+                        description=f"Guest checked into room {room_num} (overdue)",
+                        guest_id=guest_id,
+                        room_number=room_num,
+                        reservation_id=res_id
+                    )
+                    self.results.events.append(event)
+                    if verbose:
+                        print(f"✅ Check-in: Guest {guest_id} → Room {room_num} (overdue)")
             
             # 2. Process scheduled check-outs
             check_outs = self._get_scheduled_check_outs(date_str)
@@ -589,6 +608,24 @@ class HotelSimulationEngine:
             return [(row['id'], row['guest_id'], row['room_number']) for row in results]
         except Exception as e:
             print(f"Error getting check-ins: {e}")
+            return []
+
+    def _get_overdue_check_ins(self, date: str) -> List[Tuple[int, int, str]]:
+        """Get reservations that should have been checked in on previous days"""
+        try:
+            query = """
+                SELECT r.id, r.guest_id, rm.room_number
+                FROM reservations r
+                JOIN rooms rm ON r.room_id = rm.id
+                WHERE r.check_in_date < ?
+                AND r.check_out_date >= ?
+                AND r.status = 'confirmed'
+                AND rm.hotel_id = ?
+            """
+            results = self.db.execute_query(query, (date, date, self.hotel_id), fetch=True)
+            return [(row['id'], row['guest_id'], row['room_number']) for row in results]
+        except Exception as e:
+            print(f"Error getting overdue check-ins: {e}")
             return []
     
     def _get_scheduled_check_outs(self, date: str) -> List[Tuple[int, int, str]]:
