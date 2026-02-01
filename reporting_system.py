@@ -45,6 +45,7 @@ class ReportConfig:
     end_date: Optional[str] = None
     output_format: str = "text"  # text, csv, json
     include_details: bool = False
+    specific_date: Optional[str] = None  # For daily reports with specific date
 
 
 @dataclass
@@ -80,6 +81,10 @@ class HotelReportingSystem:
         # Validate hotel exists
         if not self._hotel_exists(config.hotel_id):
             raise ValueError(f"Hotel ID {config.hotel_id} does not exist")
+        
+        # Validate date parameters for reports that require them
+        if config.report_type in [ReportType.DAILY_STATUS, ReportType.OCCUPANCY_ANALYSIS]:
+            self._validate_date_parameters(config)
         
         # Generate the appropriate report
         if config.report_type == ReportType.DAILY_STATUS:
@@ -142,8 +147,8 @@ class HotelReportingSystem:
         """, (config.hotel_id,))
         hotel_info = cursor.fetchone()
         
-        # Get current date for daily report
-        current_date = datetime.now().strftime('%Y-%m-%d')
+        # Get date for daily report (use specific_date if provided, otherwise today)
+        current_date = config.specific_date if config.specific_date else datetime.now().strftime('%Y-%m-%d')
         
         # Get room status counts
         cursor.execute("""
@@ -192,11 +197,21 @@ class HotelReportingSystem:
         }
         
         summary = {
+            'hotel_id': config.hotel_id,
+            'hotel_name': hotel_info['name'],
+            'report_date': current_date,
             'total_rooms': hotel_info['total_rooms'],
+            'total_floors': hotel_info['total_floors'],
             'occupied_rooms': room_status.get('occupied', 0),
             'available_rooms': room_status.get('available', 0),
+            'reserved_rooms': room_status.get('reserved', 0),
+            'maintenance_rooms': room_status.get('maintenance', 0),
             'occupancy_rate': (room_status.get('occupied', 0) / hotel_info['total_rooms']) * 100 if hotel_info['total_rooms'] > 0 else 0,
-            'current_guests': reservation_stats['checked_in']
+            'current_guests': reservation_stats['checked_in'],
+            'check_ins_today': reservation_stats['checked_in'],
+            'check_outs_today': reservation_stats['checked_out'],
+            'new_reservations': reservation_stats['confirmed'],
+            'cancellations': reservation_stats['cancelled']
         }
         
         return data, summary
@@ -323,13 +338,32 @@ class HotelReportingSystem:
         """Generate occupancy analysis report"""
         cursor = self.conn.cursor()
         
-        # Determine date range
-        if config.time_period == TimePeriod.MONTHLY:
+        # Determine date range based on time period
+        if config.time_period == TimePeriod.DAILY:
+            # For daily occupancy analysis, use specific_date if provided, otherwise today
+            target_date = config.specific_date if config.specific_date else datetime.now().strftime('%Y-%m-%d')
+            start_date = target_date
+            end_date = target_date
+        elif config.time_period == TimePeriod.WEEKLY:
+            start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        elif config.time_period == TimePeriod.MONTHLY:
             start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
             end_date = datetime.now().strftime('%Y-%m-%d')
-        else:
+        elif config.time_period == TimePeriod.QUARTERLY:
+            start_date = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        elif config.time_period == TimePeriod.YEARLY:
+            start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        elif config.time_period == TimePeriod.CUSTOM:
+            # Use the validated start_date and end_date from config
             start_date = config.start_date or (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
             end_date = config.end_date or datetime.now().strftime('%Y-%m-%d')
+        else:
+            # Default to monthly
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            end_date = datetime.now().strftime('%Y-%m-%d')
         
         # Get daily occupancy data
         cursor.execute("""
@@ -415,9 +449,13 @@ class HotelReportingSystem:
         }
         
         summary = {
+            'hotel_id': config.hotel_id,
+            'start_date': start_date,
+            'end_date': end_date,
             'period_days': (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days + 1,
             'average_stay_length': avg_stay_length,
-            'total_room_types': len(occupancy_by_type)
+            'total_room_types': len(occupancy_by_type),
+            'average_occupancy_rate': average_occupancy_rate
         }
         
         return data, summary
@@ -737,6 +775,145 @@ class HotelReportingSystem:
         cursor = self.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM hotel WHERE id = ?", (hotel_id,))
         return cursor.fetchone()[0] > 0
+    
+    def _validate_date_parameters(self, config: ReportConfig) -> None:
+        """Validate date parameters and provide helpful error messages"""
+        report_type = config.report_type
+        
+        # For daily status reports
+        if report_type == ReportType.DAILY_STATUS:
+            if config.specific_date:
+                # Validate specific date format (YYYY-MM-DD)
+                if not self._is_valid_date_format(config.specific_date):
+                    raise ValueError(
+                        f"Invalid date format: {config.specific_date}\"
+                        f"Date should be in YYYY-MM-DD format. Example: \"2026-02-01\"
+                    )
+            # Daily status reports can use specific_date or default to today
+            return
+        
+        # For occupancy analysis reports
+        elif report_type == ReportType.OCCUPANCY_ANALYSIS:
+            if config.time_period == TimePeriod.CUSTOM:
+                if not config.start_date or not config.end_date:
+                    raise ValueError(
+                        "For CUSTOM time period, both start_date and end_date are required.\n"
+                        "Usage: start_date='YYYY-MM-DD', end_date='YYYY-MM-DD'"
+                    )
+                if not self._is_valid_date_format(config.start_date):
+                    raise ValueError(
+                        f"Invalid start_date format: {config.start_date}\"
+                        f"Date should be in YYYY-MM-DD format. Example: \"2026-02-01\"
+                    )
+                if not self._is_valid_date_format(config.end_date):
+                    raise ValueError(
+                        f"Invalid end_date format: {config.end_date}\"
+                        f"Date should be in YYYY-MM-DD format. Example: \"2026-02-01\"
+                    )
+                
+                # Validate date range
+                start_date = datetime.strptime(config.start_date, '%Y-%m-%d')
+                end_date = datetime.strptime(config.end_date, '%Y-%m-%d')
+                if start_date > end_date:
+                    raise ValueError(
+                        f"Invalid date range: start_date ({config.start_date}) "
+                        f"cannot be after end_date ({config.end_date})"
+                    )
+                
+                # Validate reasonable date range (max 365 days)
+                delta = end_date - start_date
+                if delta.days > 365:
+                    raise ValueError(
+                        f"Date range too large: {delta.days} days. "
+                        f"Maximum allowed is 365 days."
+                    )
+            # Other time periods don't require custom dates
+            return
+        
+        # For other report types, provide helpful guidance
+        else:
+            if config.specific_date or config.start_date or config.end_date:
+                print(f"Note: Date parameters are not typically used for {report_type.value} reports.")
+                print(f"For date-specific analysis, consider using:")
+                print(f"  - {ReportType.DAILY_STATUS.value} with specific_date parameter")
+                print(f"  - {ReportType.OCCUPANCY_ANALYSIS.value} with time_period and date range")
+    
+    def _is_valid_date_format(self, date_str: str) -> bool:
+        """Check if date string is in valid YYYY-MM-DD format"""
+        try:
+            datetime.strptime(date_str, '%Y-%m-%d')
+            return True
+        except ValueError:
+            return False
+    
+    def get_usage_help(self, report_type: ReportType = None) -> str:
+        """Get helpful usage information for report generation"""
+        help_text = [
+            "📊 HOTEL REPORTING SYSTEM - USAGE GUIDE",
+            "=" * 60,
+            "",
+            "📋 REPORT TYPES:",
+            "  • daily_status - Daily occupancy and status report",
+            "  • financial_summary - Financial performance summary",
+            "  • occupancy_analysis - Occupancy trends and analysis",
+            "  • revenue_by_room_type - Revenue breakdown by room type",
+            "  • guest_demographics - Guest information and statistics",
+            "  • housekeeping_status - Housekeeping operations report",
+            "  • cancellation_analysis - Cancellation patterns and reasons",
+            "",
+            "📅 TIME PERIODS:",
+            "  • daily - Single day (use with specific_date)",
+            "  • weekly - Last 7 days",
+            "  • monthly - Last 30 days (default)",
+            "  • quarterly - Last 90 days",
+            "  • yearly - Last 365 days",
+            "  • custom - Custom date range (requires start_date and end_date)",
+            "",
+            "🗓️ DATE FORMAT: YYYY-MM-DD (Example: 2026-02-01)",
+            "",
+            "📈 USAGE EXAMPLES:",
+        ]
+        
+        examples = [
+            ("Daily Status Report (today)", 
+             "ReportConfig(report_type=ReportType.DAILY_STATUS, time_period=TimePeriod.DAILY, hotel_id=1)"),
+            
+            ("Daily Status Report (specific date)",
+             "ReportConfig(report_type=ReportType.DAILY_STATUS, time_period=TimePeriod.DAILY, hotel_id=1, specific_date='2026-02-01')"),
+            
+            ("Occupancy Analysis (weekly)",
+             "ReportConfig(report_type=ReportType.OCCUPANCY_ANALYSIS, time_period=TimePeriod.WEEKLY, hotel_id=1)"),
+            
+            ("Occupancy Analysis (custom range)",
+             "ReportConfig(report_type=ReportType.OCCUPANCY_ANALYSIS, time_period=TimePeriod.CUSTOM, hotel_id=1, start_date='2026-01-01', end_date='2026-01-31')"),
+            
+            ("Financial Summary (monthly)",
+             "ReportConfig(report_type=ReportType.FINANCIAL_SUMMARY, time_period=TimePeriod.MONTHLY, hotel_id=1)"),
+        ]
+        
+        for title, example in examples:
+            help_text.append(f"  {title}:")
+            help_text.append(f"    {example}")
+            help_text.append("")
+        
+        help_text.extend([
+            "💡 TIPS:",
+            "  • Use specific_date for daily reports to analyze historical days",
+            "  • Use CUSTOM time period with start_date and end_date for date ranges",
+            "  • Date format must be YYYY-MM-DD (e.g., 2026-02-01)",
+            "  • Maximum date range is 365 days for performance reasons",
+            "  • All reports support text, csv, and json output formats",
+            "",
+            "❌ COMMON ERRORS:",
+            "  • Wrong date format: '02/01/2026' → Use '2026-02-01' instead",
+            "  • Missing dates for CUSTOM period: Provide both start_date and end_date",
+            "  • Invalid date range: start_date cannot be after end_date",
+            "  • Date range too large: Maximum 365 days allowed",
+            "",
+            "=" * 60
+        ])
+        
+        return "\n".join(help_text)
     
     def _display_text_report(self, report: ReportResult) -> str:
         """Display report in text format"""
