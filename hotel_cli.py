@@ -286,14 +286,58 @@ class HotelCLI(cmd.Cmd):
             print(f"Error: {e}")
     
     def do_financial_report(self, arg):
-        """Get financial report: financial_report <hotel_id>"""
+        """Get financial report: financial_report <hotel_id> [time_period] [start_date] [end_date]"""
         try:
-            hotel_id = int(arg.strip())
+            # Parse arguments similar to occupancy_report
+            parts = arg.split()
+            if len(parts) < 1:
+                print("Usage: financial_report <hotel_id> [time_period] [start_date] [end_date]")
+                print("Example: financial_report 1 weekly")
+                print("Example: financial_report 1 custom 2026-01-01 2026-01-31")
+                return
+            
+            # Extract hotel_id (first argument)
+            try:
+                hotel_id = int(parts[0])
+            except ValueError:
+                print(f"❌ Invalid hotel ID: {parts[0]}")
+                return
+            
+            # Parse time period (default: monthly)
+            time_period = TimePeriod.MONTHLY
+            start_date = None
+            end_date = None
+            
+            if len(parts) > 1:
+                # Check if first remaining arg is a time period
+                period_arg = parts[1].upper()
+                if period_arg in ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY', 'CUSTOM']:
+                    time_period = TimePeriod[period_arg]
+                    if time_period == TimePeriod.CUSTOM and len(parts) < 4:
+                        print("❌ Custom period requires start_date and end_date")
+                        print("Usage: financial_report <hotel_id> custom YYYY-MM-DD YYYY-MM-DD")
+                        return
+                    
+                    # Parse dates for custom period
+                    if time_period == TimePeriod.CUSTOM:
+                        try:
+                            start_date = parts[2]
+                            end_date = parts[3]
+                            from datetime import datetime
+                            datetime.strptime(start_date, '%Y-%m-%d')
+                            datetime.strptime(end_date, '%Y-%m-%d')
+                        except ValueError as e:
+                            print(f"❌ Invalid date format: {e}")
+                            print("📅 Date should be in YYYY-MM-DD format. Example: 2026-02-01")
+                            return
+            
             from reporting_system import ReportConfig, ReportType, TimePeriod
             config = ReportConfig(
                 report_type=ReportType.FINANCIAL_SUMMARY,
-                time_period=TimePeriod.DAILY,
-                hotel_id=hotel_id
+                time_period=time_period,
+                hotel_id=hotel_id,
+                start_date=start_date,
+                end_date=end_date
             )
             report = self.reporter.generate_report(config)
             print(self.reporter.display_report(report))
