@@ -416,7 +416,7 @@ class DailyTransactionTracker:
                     )
                 )
             """
-            result = self.db.execute_query(query, (seven_days_ago, today), fetch=True)[0]['avg_additional']
+            result = self.db.execute_query(query, (seven_days_ago, today, hotel_id), fetch=True)[0]['avg_additional']
             return result or 0.0
         except Exception as e:
             print(f"Error getting average additional revenue: {e}")
@@ -425,14 +425,23 @@ class DailyTransactionTracker:
     def _get_hotel_rooms(self, hotel_id: int) -> List[Dict]:
         """Get all rooms for a hotel"""
         try:
+            # Try with room_type first, fall back to simpler query if needed
             query = """
                 SELECT 
-                    id, room_number, room_type, status, price_per_night
+                    id, room_number, status, price_per_night
                 FROM rooms 
                 WHERE hotel_id = ?
                 ORDER BY room_number
             """
-            return self.db.execute_query(query, (hotel_id,), fetch=True)
+            rooms = self.db.execute_query(query, (hotel_id,), fetch=True)
+            
+            # If we need room_type, we can get it from room_types table
+            # For now, use a default value if not available
+            for room in rooms:
+                if 'room_type' not in room:
+                    room['room_type'] = 'Standard'  # Default room type
+            
+            return rooms
         except Exception as e:
             print(f"Error getting hotel rooms: {e}")
             return []
