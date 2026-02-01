@@ -23,20 +23,44 @@ from database import HotelDatabase
 @dataclass
 class SimulationConfig:
     """Configuration for hotel simulation"""
-    # Probability settings (0.0 - 1.0)
-    new_reservation_probability: float = 0.5  # Increased from 0.3
-    check_in_probability: float = 0.6  # Increased from 0.4
-    check_out_probability: float = 0.5  # Increased from 0.35
-    cancellation_probability: float = 0.08  # Increased from 0.05
-    early_checkout_probability: float = 0.15  # Increased from 0.1
-    late_checkout_probability: float = 0.2  # Increased from 0.15
-    housekeeping_delay_probability: float = 0.05  # Increased from 0.02
-    maintenance_issue_probability: float = 0.03  # Increased from 0.01
-    walk_in_guest_probability: float = 0.2  # New: Walk-in guests
-    group_booking_probability: float = 0.15  # New: Group bookings
-    extended_stay_probability: float = 0.2  # New: Extended stays
-    loyalty_member_probability: float = 0.3  # New: Loyalty members
-    special_request_probability: float = 0.25  # New: Special requests
+    # Occupancy target range (percentage)
+    min_occupancy_percent: float = 60.0
+    max_occupancy_percent: float = 90.0
+    
+    # Transaction parameters
+    cancellation_rate: float = 0.05  # Only 5% of reservations are cancelled
+    walk_in_probability: float = 0.2  # 20% chance of walk-in guests
+    group_booking_probability: float = 0.15  # 15% chance of group bookings
+    loyalty_member_probability: float = 0.3  # 30% chance of loyalty member bookings
+    
+    # Event probabilities (per day)
+    new_reservation_probability: float = 0.5
+    check_in_probability: float = 0.6
+    check_out_probability: float = 0.5
+    
+    # Guest behavior
+    average_stay_days_min: int = 1
+    average_stay_days_max: int = 7
+    
+    # Pricing
+    seasonal_price_variation: float = 0.2
+    weekend_price_multiplier: float = 1.15
+    loyalty_discount: float = 0.1
+    
+    # Room distribution
+    room_types: list = None
+    total_rooms: int = 100
+    total_floors: int = 5
+    room_distribution: str = 'balanced'
+    
+    # Guest diversity
+    guest_name_count: int = 50
+    international_guest_percentage: float = 0.2
+    
+    # Financial
+    revenue_goal_daily: float = 10000.00
+    tax_rate: float = 0.10
+    service_fee: float = 0.05
     
     # Guest behavior
     average_stay_days: Tuple[int, int] = (1, 7)  # min, max
@@ -96,14 +120,24 @@ class SimulationResults:
 class HotelSimulationEngine:
     """Main simulation engine that generates hotel operations over time"""
     
-    def __init__(self, hotel_id: int, db_path: str = 'hotel.db'):
+    def __init__(self, hotel_id: int, db_path: str = 'hotel.db', config: SimulationConfig = None):
         """Initialize simulation engine"""
         self.hotel_id = hotel_id
         self.db = HotelDatabase(db_path)
         self.simulator = HotelSimulator(db_path)
         self.reservation_system = ReservationSystem(self.db)
         self.reporter = HotelReporter(self.db)
-        self.config = SimulationConfig()
+        
+        # Load configuration
+        if config is None:
+            try:
+                from config_loader import load_simulation_config
+                self.config = load_simulation_config()
+            except:
+                self.config = SimulationConfig()
+        else:
+            self.config = config
+        
         self.current_date = datetime.datetime.now()
         self.guest_counter = 1
         self.results = None
@@ -167,9 +201,22 @@ class HotelSimulationEngine:
                 print(f"\n📅 Day {day} ({day_name}, {date_str})")
                 print("-" * 50)
             
+            # Calculate target occupancy for this day
+            target_occupancy_pct = random.uniform(self.config.min_occupancy_percent, self.config.max_occupancy_percent)
+            # Get total rooms from database
+            hotel_info = self.db.get_hotel_info(self.hotel_id)
+            total_rooms = hotel_info['total_rooms'] if hotel_info else 100
+            target_occupied_rooms = int(total_rooms * target_occupancy_pct / 100)
+            
+            if verbose:
+                print(f"🎯 Target: {target_occupancy_pct:.1f}% occupancy ({target_occupied_rooms} rooms)")
+            
             # Track daily metrics
             daily_revenue = 0.0
             daily_guests = 0
+            
+            # Get current occupancy
+            current_occupied = self._get_current_occupancy(date_str)
             
             # 1. Process scheduled check-ins
             check_ins = self._get_scheduled_check_ins(date_str)
@@ -574,6 +621,20 @@ class HotelSimulationEngine:
         except Exception as e:
             print(f"Error getting active reservations: {e}")
             return []
+    
+    def _get_current_occupancy(self, date: str) -> int:
+        """Get current number of occupied rooms"""
+        try:
+            query = """
+                SELECT COUNT(*) as occupied
+                FROM rooms 
+                WHERE hotel_id = ? AND status = 'occupied'
+            """
+            results = self.db.execute_query(query, (self.hotel_id,), fetch=True)
+            return results[0]['occupied'] if results else 0
+        except Exception as e:
+            print(f"Error getting current occupancy: {e}")
+            return 0
     
     def _get_checked_in_guests(self, date: str) -> List[Tuple[int, str, int]]:
         """Get guests who are currently checked in"""
