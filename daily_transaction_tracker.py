@@ -139,17 +139,21 @@ class DailyTransactionTracker:
             room_detail = RoomTransactionDetail()
             room_detail.room_number = room['room_number']
             room_detail.room_type = room['room_type']
-            room_detail.status = room['status']
             room_detail.daily_rate = room['price_per_night']
             
-            # Get current guest information if occupied
-            if room['status'] == 'occupied':
-                guest_info = self._get_current_guest_for_room(room['id'], date)
-                if guest_info:
-                    room_detail.guest_name = f"{guest_info['first_name']} {guest_info['last_name']}"
-                    room_detail.reservation_id = guest_info['reservation_id']
-                    room_detail.check_in_date = guest_info['check_in_date']
-                    room_detail.check_out_date = guest_info['check_out_date']
+            # Get current guest information to determine actual status
+            guest_info = self._get_current_guest_for_room(room['id'], date)
+            
+            if guest_info:
+                # Room is actually occupied if there's a checked-in guest
+                room_detail.status = 'occupied'
+                room_detail.guest_name = f"{guest_info['first_name']} {guest_info['last_name']}"
+                room_detail.reservation_id = guest_info['reservation_id']
+                room_detail.check_in_date = guest_info['check_in_date']
+                room_detail.check_out_date = guest_info['check_out_date']
+            else:
+                # Use the database status if no guest is checked in
+                room_detail.status = room['status']
             
             # Get transactions for this room on this date
             transactions = self._get_room_transactions(room['id'], date)
@@ -221,6 +225,7 @@ class DailyTransactionTracker:
     def _get_room_status_counts(self, hotel_id: int, date: str) -> Dict[str, int]:
         """Get counts of rooms by status for a specific date"""
         try:
+            # Get actual room statuses from database
             query = """
                 SELECT 
                     status, 
@@ -230,7 +235,25 @@ class DailyTransactionTracker:
                 GROUP BY status
             """
             results = self.db.execute_query(query, (hotel_id,), fetch=True)
-            return {row['status']: row['count'] for row in results}
+            status_counts = {row['status']: row['count'] for row in results}
+            
+            # Get count of actually occupied rooms (with checked-in guests)
+            occupied_query = """
+                SELECT COUNT(DISTINCT r.room_id) as occupied
+                FROM reservations r
+                JOIN rooms rm ON r.room_id = rm.id
+                WHERE rm.hotel_id = ?
+                AND r.status = 'checked_in'
+                AND r.check_in_date <= ?
+                AND r.check_out_date >= ?
+            """
+            occupied_result = self.db.execute_query(occupied_query, (hotel_id, date, date), fetch=True)
+            actual_occupied = occupied_result[0]['occupied'] if occupied_result else 0
+            
+            # Override the occupied count with the actual count
+            status_counts['occupied'] = actual_occupied
+            
+            return status_counts
         except Exception as e:
             print(f"Error getting room status counts: {e}")
             return {}
