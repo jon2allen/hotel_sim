@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# System files
+.DS_Store
+
+# Logs
+*.log
+
+# Test output
+coverage.xml
+.htmlcov/
+.tox/
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+.env.local
+
+# Cache
+.cache/
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+
+# OS generated files
+ehthumbs.db
+Thumbs.db
