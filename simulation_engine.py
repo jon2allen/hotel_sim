@@ -592,13 +592,26 @@ class HotelSimulationEngine:
                         if verbose:
                             print(f"❌ Cancellation: Room {room_num}")
             
-            # 5. Update daily metrics
-            self.results.total_revenue += daily_revenue
-            
-            # 5. Synchronize room and reservation statuses
+            # 5. Synchronize room and reservation statuses first to ensure accurate occupancy calculation
             self._synchronize_reservation_statuses(date_str)
             
-            # 6. Get daily status
+            # 6. Check if we're meeting minimum occupancy targets and generate additional events if needed
+            current_occupied = self._get_current_occupancy(date_str)
+            if current_occupied < target_occupied_rooms:
+                # We need to generate more check-ins to meet the target
+                needed_check_ins = target_occupied_rooms - current_occupied
+                self._generate_additional_check_ins(date_str, needed_check_ins, verbose)
+                
+                # Update current occupancy after generating additional check-ins
+                current_occupied = self._get_current_occupancy(date_str)
+            
+            # 6. Update daily metrics
+            self.results.total_revenue += daily_revenue
+            
+            # 7. Synchronize room and reservation statuses
+            self._synchronize_reservation_statuses(date_str)
+            
+            # 8. Get daily status
             status = self.reporter.get_hotel_status(self.hotel_id)
             if status:
                 daily_occupancy = status.get('occupancy_rate', 0)
@@ -733,6 +746,157 @@ class HotelSimulationEngine:
         except Exception as e:
             print(f"Error getting checked-in guests: {e}")
             return []
+
+    def _get_available_rooms_with_reservations(self, date: str) -> List[Tuple[int, int, int, str]]:
+        """Get available rooms that have confirmed reservations for today"""
+        try:
+            query = """
+                SELECT r.id as reservation_id, r.guest_id, r.room_id, rm.room_number
+                FROM reservations r
+                JOIN rooms rm ON r.room_id = rm.id
+                WHERE r.check_in_date = ?
+                AND r.status = 'confirmed'
+                AND rm.hotel_id = ?
+                AND rm.status = 'reserved'
+                ORDER BY r.id
+            """
+            results = self.db.execute_query(query, (date, self.hotel_id), fetch=True)
+            return [(row['room_id'], row['reservation_id'], row['guest_id'], row['room_number']) 
+                   for row in results]
+        except Exception as e:
+            print(f"Error getting available rooms with reservations: {e}")
+            return []
+
+    def _create_walk_in_reservations_for_target(self, date: str, count: int, verbose: bool = True) -> int:
+        """Create walk-in reservations and check them in immediately to meet occupancy targets"""
+        if count <= 0:
+            return 0
+            
+        check_ins_generated = 0
+        
+        # Get available rooms
+        available_rooms = self.simulator.find_available_rooms(check_in=date)
+        
+        if not available_rooms:
+            if verbose:
+                print(f"⚠️  No available rooms for walk-in reservations")
+            return 0
+            
+        # Generate guest names for simulation - use the same expanded list
+        first_names = [
+            'John', 'Jane', 'Michael', 'Sarah', 'David', 'Emily', 'Robert', 'Jennifer',
+            'William', 'Lisa', 'Thomas', 'Jessica', 'Daniel', 'Amanda', 'Christopher', 'Melissa',
+            'Matthew', 'Nicole', 'Andrew', 'Stephanie', 'James', 'Rebecca', 'Joshua', 'Laura',
+            'Kevin', 'Heather', 'Brian', 'Michelle', 'Timothy', 'Christina', 'Jason', 'Elizabeth',
+            'Ryan', 'Katherine', 'Jacob', 'Samantha', 'Gary', 'Ashley', 'Nicholas', 'Megan'
+        ]
+        last_names = [
+            'Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Miller', 'Davis', 'Wilson',
+            'Taylor', 'Anderson', 'Thomas', 'Jackson', 'White', 'Harris', 'Martin', 'Thompson',
+            'Garcia', 'Martinez', 'Robinson', 'Clark', 'Rodriguez', 'Lewis', 'Lee', 'Walker',
+            'Hall', 'Allen', 'Young', 'Hernandez', 'King', 'Wright', 'Lopez', 'Hill'
+        ]
+        
+        # Add some international names for diversity
+        international_first_names = [
+            'Carlos', 'Maria', 'Wei', 'Li', 'Pierre', 'Sophie', 'Hans', 'Anna',
+            'Yuki', 'Hiro', 'Aisha', 'Mohammed', 'Luca', 'Giovanna', 'Ivan', 'Olga'
+        ]
+        international_last_names = [
+            'Gonzalez', 'Rodriguez', 'Wang', 'Zhang', 'Dubois', 'Muller', 'Tanaka', 'Ivanov',
+            'Khan', 'Rossi', 'Silva', 'Kim', 'Patel', 'Nguyen', 'Chen', 'Wong'
+        ]
+        
+        # Combine all names
+        all_first_names = first_names + international_first_names
+        all_last_names = last_names + international_last_names
+        
+        # Create walk-in reservations and check them in immediately
+        for i in range(min(count, len(available_rooms))):
+            room = available_rooms[i]
+            stay_days = random.randint(1, 3)  # Shorter stays for walk-ins
+            check_out = (self.current_date + datetime.timedelta(days=stay_days)).strftime("%Y-%m-%d")
+              
+            # Create guest
+            guest = self.simulator.create_guest(
+                first_name=random.choice(all_first_names),
+                last_name=random.choice(all_last_names),
+                email=f"walkin{self.guest_counter}@example.com"
+            )
+            self.guest_counter += 1
+            self.results.total_guests += 1
+             
+            # Create reservation
+            reservation = self.reservation_system.create_reservation(
+                self.simulator, guest, room, date, check_out
+            )
+            self.results.total_reservations += 1
+            
+            # Check in immediately
+            if self.reservation_system.check_in(reservation.id):
+                check_ins_generated += 1
+                
+                event = SimulationEvent(
+                    day=self.current_date.day,
+                    time=self._random_time('14:00', '20:00'),
+                    event_type="walk_in_booking",
+                    description=f"Target-driven walk-in: {guest.first_name} {guest.last_name} → Room {room.room_number}",
+                    amount=reservation.total_price,
+                    guest_id=guest.id,
+                    room_number=room.room_number,
+                    reservation_id=reservation.id
+                )
+                self.results.events.append(event)
+                self.results.total_walk_ins += 1
+                
+                if verbose:
+                    print(f"🚶 Target Walk-in: {guest.first_name} {guest.last_name} → Room {room.room_number} (${reservation.total_price})")
+            
+        return check_ins_generated
+
+    def _generate_additional_check_ins(self, date: str, needed_check_ins: int, verbose: bool = True):
+        """Generate additional check-ins to meet occupancy targets"""
+        if needed_check_ins <= 0:
+            return
+            
+        if verbose:
+            print(f"🎯 Generating {needed_check_ins} additional check-ins to meet occupancy target")
+            
+        # Get available rooms that have confirmed reservations
+        available_rooms_with_reservations = self._get_available_rooms_with_reservations(date)
+        
+        # Generate check-ins for existing reservations first
+        check_ins_generated = 0
+        for room_id, reservation_id, guest_id, room_number in available_rooms_with_reservations:
+            if check_ins_generated >= needed_check_ins:
+                break
+                
+            # Check in the reservation
+            if self.reservation_system.check_in(reservation_id):
+                check_ins_generated += 1
+                self.results.total_guests += 1
+                
+                event = SimulationEvent(
+                    day=self.current_date.day,
+                    time=self._random_time(*self.config.check_in_time_range),
+                    event_type="check_in",
+                    description=f"Additional check-in: Guest {guest_id} → Room {room_number}",
+                    guest_id=guest_id,
+                    room_number=room_number,
+                    reservation_id=reservation_id
+                )
+                self.results.events.append(event)
+                
+                if verbose:
+                    print(f"✅ Additional Check-in: Guest {guest_id} → Room {room_number}")
+            
+        # If we still need more check-ins, create new walk-in reservations
+        remaining_needed = needed_check_ins - check_ins_generated
+        if remaining_needed > 0:
+            check_ins_generated += self._create_walk_in_reservations_for_target(date, remaining_needed, verbose)
+            
+        if verbose and check_ins_generated > 0:
+            print(f"🎉 Generated {check_ins_generated} additional check-ins")
     
     def _random_time(self, start: str, end: str) -> str:
         """Generate random time between start and end"""
