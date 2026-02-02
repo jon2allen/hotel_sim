@@ -455,20 +455,35 @@ class ReservationSystem:
             return False, 0.0
     
     def _create_transaction(self, reservation_id: int, amount: float, 
-                           transaction_type: TransactionType, description: str):
-        """Create a financial transaction"""
+                           transaction_type: TransactionType, description: str, 
+                           transaction_date: str = None):
+        """Create a financial transaction with optional date"""
         try:
-            query = """
-                INSERT INTO transactions 
-                (reservation_id, amount, transaction_type, description)
-                VALUES (?, ?, ?, ?)
-            """
-            self.db.execute_query(query, (
-                reservation_id,
-                amount,
-                transaction_type.value,
-                description
-            ))
+            if transaction_date:
+                query = """
+                    INSERT INTO transactions 
+                    (reservation_id, amount, transaction_type, description, transaction_date)
+                    VALUES (?, ?, ?, ?, ?)
+                """
+                self.db.execute_query(query, (
+                    reservation_id,
+                    amount,
+                    transaction_type.value,
+                    description,
+                    transaction_date
+                ))
+            else:
+                query = """
+                    INSERT INTO transactions 
+                    (reservation_id, amount, transaction_type, description)
+                    VALUES (?, ?, ?, ?)
+                """
+                self.db.execute_query(query, (
+                    reservation_id,
+                    amount,
+                    transaction_type.value,
+                    description
+                ))
         except sqlite3.Error as e:
             print(f"Error creating transaction: {e}")
             raise
@@ -550,7 +565,7 @@ class HotelReporter:
             # Calculate occupancy
             total_rooms = sum(status['count'] for status in room_status)
             occupied = sum(status['count'] for status in room_status 
-                          if status['status'] in ('occupied', 'reserved'))
+                          if status['status'] == 'occupied')
             
             occupancy_rate = (occupied / total_rooms * 100) if total_rooms > 0 else 0
             

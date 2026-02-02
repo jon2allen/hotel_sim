@@ -152,8 +152,16 @@ class DailyTransactionTracker:
                 room_detail.check_in_date = guest_info['check_in_date']
                 room_detail.check_out_date = guest_info['check_out_date']
             else:
-                # Use the database status if no guest is checked in
-                room_detail.status = room['status']
+                # Check if room is reserved for this date
+                is_reserved = self._is_room_reserved_for_date(room['id'], date)
+                if is_reserved:
+                    room_detail.status = 'reserved'
+                else:
+                    # Only use database status if it's not occupied (to handle maintenance, etc.)
+                    if room['status'] == 'occupied':
+                        room_detail.status = 'available'  # Override incorrect occupied status
+                    else:
+                        room_detail.status = room['status']
             
             # Get transactions for this room on this date
             transactions = self._get_room_transactions(room['id'], date)
@@ -469,6 +477,23 @@ class DailyTransactionTracker:
             print(f"Error getting hotel rooms: {e}")
             return []
     
+    def _is_room_reserved_for_date(self, room_id: int, date: str) -> bool:
+        """Check if a room is reserved for a specific date"""
+        try:
+            query = """
+                SELECT COUNT(*) as count
+                FROM reservations r
+                WHERE r.room_id = ?
+                AND r.status IN ('confirmed', 'reserved')
+                AND r.check_in_date <= ?
+                AND r.check_out_date >= ?
+            """
+            results = self.db.execute_query(query, (room_id, date, date), fetch=True)
+            return results[0]['count'] > 0 if results else False
+        except Exception as e:
+            print(f"Error checking room reservation: {e}")
+            return False
+
     def _get_current_guest_for_room(self, room_id: int, date: str) -> Optional[Dict]:
         """Get current guest information for a room"""
         try:

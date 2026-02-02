@@ -3,7 +3,7 @@
 
 [simulation]
 # Occupancy range - the simulation will try to achieve occupancy within this range
-min_occupancy_percent = 60.0   # Minimum target occupancy percentage
+min_occupancy_percent = 80.0   # Minimum target occupancy percentage
 max_occupancy_percent = 90.0   # Maximum target occupancy percentage
 
 # Transaction parameters

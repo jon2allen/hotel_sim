@@ -261,7 +261,7 @@ class HotelSimulationEngine:
             # 2. Process scheduled check-outs
             check_outs = self._get_scheduled_check_outs(date_str)
             for res_id, guest_id, room_num in check_outs:
-                success, amount = self.reservation_system.check_out(res_id)
+                success, amount = self._check_out_with_date(res_id, date_str)
                 if success:
                     daily_revenue += amount
                     self.results.total_revenue += amount
@@ -282,7 +282,7 @@ class HotelSimulationEngine:
             # 2b. Process overdue check-outs (reservations that should have been checked out on previous days)
             overdue_check_outs = self._get_overdue_check_outs(date_str)
             for res_id, guest_id, room_num in overdue_check_outs:
-                success, amount = self.reservation_system.check_out(res_id)
+                success, amount = self._check_out_with_date(res_id, date_str)
                 if success:
                     daily_revenue += amount
                     self.results.total_revenue += amount
@@ -872,6 +872,36 @@ class HotelSimulationEngine:
             return round(process.memory_info().rss / 1024 / 1024, 2)
         except ImportError:
             return 0.0  # psutil not available
+
+    def _check_out_with_date(self, reservation_id: int, date: str) -> Tuple[bool, float]:
+        """Check out a reservation with proper transaction dating"""
+        # Call the original check_out method
+        success, amount = self.reservation_system.check_out(reservation_id)
+        
+        if success:
+            # The transaction was created with current timestamp, so we need to update it
+            # Find the transaction and update its date
+            try:
+                # Get the most recent transaction for this reservation
+                query = """
+                    SELECT id FROM transactions 
+                    WHERE reservation_id = ?
+                    ORDER BY id DESC LIMIT 1
+                """
+                result = self.db.execute_query(query, (reservation_id,), fetch=True)
+                if result:
+                    transaction_id = result[0]['id']
+                    # Update the transaction date
+                    update_query = """
+                        UPDATE transactions 
+                        SET transaction_date = ?
+                        WHERE id = ?
+                    """
+                    self.db.execute_query(update_query, (date, transaction_id))
+            except Exception as e:
+                print(f"Error updating transaction date: {e}")
+        
+        return success, amount
 
     def _synchronize_reservation_statuses(self, date: str) -> None:
         """Synchronize room and reservation statuses to ensure consistency"""
