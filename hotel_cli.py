@@ -225,6 +225,22 @@ class HotelCLI(cmd.Cmd):
         except Exception as e:
             print(f"Error: {e}")
     
+    def do_list_room_types(self, arg):
+        """List all room types"""
+        try:
+            room_types = self.db.execute_query(
+                'SELECT id, name, description, base_price, max_occupancy FROM room_types', fetch=True)
+            if room_types:
+                print(f"Found {len(room_types)} room types:")
+                for rt in room_types:
+                    print(f"ID: {rt['id']}, Name: {rt['name']}, Price: ${rt['base_price']}, Occupancy: {rt['max_occupancy']}")
+                    if rt['description']:
+                        print(f"  Description: {rt['description']}")
+            else:
+                print("No room types found.")
+        except Exception as e:
+            print(f"Error: {e}")
+
     def do_list_rooms(self, arg):
         """List rooms in a hotel: list_rooms <hotel_id>"""
         try:
@@ -403,8 +419,98 @@ class HotelCLI(cmd.Cmd):
             # Get available room types from database
             room_types = self.db.execute_query("SELECT id, name FROM room_types", fetch=True)
             if not room_types:
-                print("Error: No room types found in database")
-                return
+                print("No room types found in database. Let's create some standard room types first.")
+                
+                # Create standard room types if none exist
+                standard_room_types = [
+                    {"name": "Standard", "base_price": 120.00, "max_occupancy": 2, "description": "Standard room with queen bed"},
+                    {"name": "Deluxe", "base_price": 180.00, "max_occupancy": 3, "description": "Deluxe room with king bed and view"},
+                    {"name": "Suite", "base_price": 300.00, "max_occupancy": 4, "description": "Luxury suite with separate living area"},
+                    {"name": "King", "base_price": 150.00, "max_occupancy": 2, "description": "Room with king-sized bed"},
+                    {"name": "Basic", "base_price": 80.00, "max_occupancy": 2, "description": "Basic room with essential amenities"}
+                ]
+                
+                # Create the room types
+                for room_type in standard_room_types:
+                    try:
+                        self.db.execute_query(
+                            "INSERT INTO room_types (name, description, base_price, max_occupancy) VALUES (?, ?, ?, ?)",
+                            (room_type["name"], room_type["description"], room_type["base_price"], room_type["max_occupancy"])
+                        )
+                    except Exception as e:
+                        # Room type might already exist, that's okay
+                        pass
+                
+                # Refresh room types list
+                room_types = self.db.execute_query("SELECT id, name FROM room_types", fetch=True)
+                print(f"✓ Created {len(room_types)} standard room types")
+            
+            # Ask if user wants to add custom room types
+            add_custom = input(f"\nWould you like to add custom room types? (y/n): ").strip().lower()
+            if add_custom in ['y', 'yes']:
+                while True:
+                    print("\n--- Add Custom Room Type ---")
+                    
+                    # Get room type details
+                    room_type_name = input("Enter room type name (or 'done' to finish): ").strip()
+                    if room_type_name.lower() in ['done', 'finish', 'exit', 'quit']:
+                        break
+                    
+                    if not room_type_name:
+                        print("Error: Room type name cannot be empty")
+                        continue
+                    
+                    # Check if room type already exists
+                    existing_check = self.db.execute_query(
+                        "SELECT id FROM room_types WHERE name = ?", 
+                        (room_type_name,), 
+                        fetch=True
+                    )
+                    
+                    if existing_check:
+                        print(f"Room type '{room_type_name}' already exists")
+                        continue
+                    
+                    # Get description (optional)
+                    description = input("Enter description (optional): ").strip()
+                    
+                    # Get base price
+                    while True:
+                        base_price_input = input("Enter base price per night (e.g., 150.00): $").strip()
+                        try:
+                            base_price = float(base_price_input)
+                            if base_price <= 0:
+                                print("Error: Price must be positive")
+                                continue
+                            break
+                        except ValueError:
+                            print("Error: Please enter a valid price")
+                    
+                    # Get max occupancy
+                    while True:
+                        occupancy_input = input("Enter maximum occupancy (1-6): ").strip()
+                        try:
+                            max_occupancy = int(occupancy_input)
+                            if max_occupancy < 1 or max_occupancy > 6:
+                                print("Error: Occupancy must be between 1 and 6")
+                                continue
+                            break
+                        except ValueError:
+                            print("Error: Please enter a valid number")
+                    
+                    # Create the custom room type
+                    try:
+                        self.db.execute_query(
+                            "INSERT INTO room_types (name, description, base_price, max_occupancy) VALUES (?, ?, ?, ?)",
+                            (room_type_name, description, base_price, max_occupancy)
+                        )
+                        print(f"✓ Created custom room type: {room_type_name}")
+                        
+                        # Refresh room types list
+                        room_types = self.db.execute_query("SELECT id, name FROM room_types", fetch=True)
+                        
+                    except Exception as e:
+                        print(f"Error creating room type: {e}")
                 
             print("\nAvailable room types:")
             for i, rt in enumerate(room_types, 1):
@@ -678,6 +784,9 @@ def main():
     room_parser.add_argument('--price', type=float, default=100.00, help='Price per night (default: 100.00)')
     room_parser.add_argument('--occupancy', type=int, default=2, help='Maximum occupancy (default: 2)')
     
+    # List room types
+    list_room_types_parser = subparsers.add_parser('list-room-types', help='List all room types')
+    
     # List rooms
     list_rooms_parser = subparsers.add_parser('list-rooms', help='List all rooms in a hotel')
     list_rooms_parser.add_argument('--hotel-id', type=int, required=True, help='Hotel ID')
@@ -744,6 +853,19 @@ def main():
         with HotelDatabase() as db:
             room_id = db.create_room(args.hotel_id, args.floor, args.room_number, args.room_type, args.price, args.occupancy)
             print(f'Room created with ID: {room_id}')
+    elif args.command == 'list-room-types':
+        with HotelDatabase() as db:
+            room_types = db.execute_query(
+                'SELECT id, name, description, base_price, max_occupancy FROM room_types', fetch=True)
+            if room_types:
+                print(f'Found {len(room_types)} room types:')
+                for rt in room_types:
+                    print(f'ID: {rt["id"]}, Name: {rt["name"]}, Price: ${rt["base_price"]}, Occupancy: {rt["max_occupancy"]}')
+                    if rt['description']:
+                        print(f'  Description: {rt["description"]}')
+            else:
+                print('No room types found.')
+    
     elif args.command == 'list-rooms':
         with HotelDatabase() as db:
             rooms = db.execute_query(
