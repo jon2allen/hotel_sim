@@ -23,6 +23,7 @@ class ReportType(Enum):
     GUEST_DEMOGRAPHICS = "guest_demographics"
     HOUSEKEEPING_STATUS = "housekeeping_status"
     CANCELLATION_ANALYSIS = "cancellation_analysis"
+    ROOM_SPECIFIC_REPORT = "room_specific_report"
 
 
 class TimePeriod(Enum):
@@ -46,6 +47,7 @@ class ReportConfig:
     output_format: str = "text"  # text, csv, json
     include_details: bool = False
     specific_date: Optional[str] = None  # For daily reports with specific date
+    room_number: Optional[str] = None  # For room-specific reports (using room number instead of ID)
 
 
 @dataclass
@@ -101,6 +103,8 @@ class HotelReportingSystem:
             data, summary = self._generate_housekeeping_status_report(config)
         elif config.report_type == ReportType.CANCELLATION_ANALYSIS:
             data, summary = self._generate_cancellation_analysis_report(config)
+        elif config.report_type == ReportType.ROOM_SPECIFIC_REPORT:
+            data, summary = self._generate_room_specific_report(config)
         else:
             raise ValueError(f"Unknown report type: {config.report_type}")
         
@@ -889,6 +893,176 @@ class HotelReportingSystem:
         }
         
         return data, summary
+
+    def _generate_room_specific_report(self, config: ReportConfig) -> tuple:
+        """Generate detailed report for a specific room"""
+        cursor = self.conn.cursor()
+        
+        # Extract room_number from config
+        room_number = getattr(config, 'room_number', None)
+        if not room_number:
+            raise ValueError("Room number is required for room-specific reports")
+        
+        # Validate room exists and belongs to the hotel
+        cursor.execute("""
+            SELECT r.id, r.room_number, r.status, rt.name as room_type, r.price_per_night, r.max_occupancy
+            FROM rooms r
+            JOIN room_types rt ON r.room_type_id = rt.id
+            WHERE r.room_number = ? AND r.hotel_id = ?
+        """, (room_number, config.hotel_id))
+        
+        room_info = cursor.fetchone()
+        if not room_info:
+            raise ValueError(f"Room {room_number} not found or does not belong to hotel {config.hotel_id}")
+        
+        # Get date range
+        if config.time_period == TimePeriod.CUSTOM:
+            start_date = config.start_date
+            end_date = config.end_date
+        elif config.specific_date:
+            # Single date report
+            start_date = config.specific_date
+            end_date = config.specific_date
+        else:
+            # Default to last 30 days
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        
+        # Get all reservations for this room in the date range
+        cursor.execute("""
+            SELECT 
+                r.id as reservation_id,
+                r.guest_id,
+                r.check_in_date,
+                r.check_out_date,
+                r.status as reservation_status,
+                r.total_price,
+                g.first_name, g.last_name, g.email, g.phone
+            FROM reservations r
+            JOIN guests g ON r.guest_id = g.id
+            WHERE r.room_id = ?
+            AND (
+                (r.check_in_date BETWEEN ? AND ?) OR
+                (r.check_out_date BETWEEN ? AND ?) OR
+                (r.check_in_date <= ? AND r.check_out_date >= ?)
+            )
+            ORDER BY r.check_in_date
+        """, (room_info['id'], start_date, end_date, start_date, end_date, start_date, end_date))
+        
+        reservations = cursor.fetchall()
+        
+        # Get daily transaction details for this room
+        cursor.execute("""
+            SELECT 
+                t.id as transaction_id,
+                t.reservation_id,
+                t.amount,
+                t.transaction_type,
+                t.transaction_date,
+                t.description,
+                t.payment_method
+            FROM transactions t
+            JOIN reservations r ON t.reservation_id = r.id
+            WHERE r.room_id = ?
+            AND t.transaction_date BETWEEN ? AND ?
+            ORDER BY t.transaction_date
+        """, (room_info['id'], start_date, end_date))
+        
+        transactions = cursor.fetchall()
+        
+        # Organize data by day
+        daily_data = {}
+        total_revenue = 0.0
+        total_nights = 0
+        total_guests = 0
+        
+        for reservation in reservations:
+            check_in_date = reservation['check_in_date']
+            check_out_date = reservation['check_out_date']
+            
+            # Calculate nights stayed within our date range
+            in_date = max(check_in_date, start_date)
+            out_date = min(check_out_date, end_date)
+            
+            if in_date <= out_date:
+                nights = (datetime.strptime(out_date, '%Y-%m-%d') - datetime.strptime(in_date, '%Y-%m-%d')).days
+                if nights > 0:
+                    total_nights += nights
+                    total_guests += 1
+                    
+                    # Add guest info for each night
+                    current_date = in_date
+                    for _ in range(nights):
+                        if current_date not in daily_data:
+                            daily_data[current_date] = {
+                                'guests': [],
+                                'transactions': [],
+                                'revenue': 0.0,
+                                'occupancy_status': 'occupied'
+                            }
+                        
+                        daily_data[current_date]['guests'].append({
+                            'guest_name': f"{reservation['first_name']} {reservation['last_name']}",
+                            'reservation_id': reservation['reservation_id'],
+                            'check_in': reservation['check_in_date'],
+                            'check_out': reservation['check_out_date'],
+                            'status': reservation['reservation_status']
+                        })
+                        
+                        current_date = (datetime.strptime(current_date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        # Add transaction data to daily breakdown
+        for transaction in transactions:
+            transaction_date = transaction['transaction_date']
+            if transaction_date in daily_data:
+                daily_data[transaction_date]['transactions'].append({
+                    'transaction_id': transaction['transaction_id'],
+                    'amount': transaction['amount'],
+                    'type': transaction['transaction_type'],
+                    'description': transaction['description'],
+                    'payment_method': transaction['payment_method']
+                })
+                daily_data[transaction_date]['revenue'] += transaction['amount']
+                total_revenue += transaction['amount']
+        
+        # Fill in dates with no activity
+        current_date = start_date
+        while current_date <= end_date:
+            if current_date not in daily_data:
+                daily_data[current_date] = {
+                    'guests': [],
+                    'transactions': [],
+                    'revenue': 0.0,
+                    'occupancy_status': 'available'
+                }
+            current_date = (datetime.strptime(current_date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        data = {
+            'room_info': dict(room_info),
+            'date_range': {
+                'start_date': start_date,
+                'end_date': end_date
+            },
+            'daily_breakdown': daily_data,
+            'reservations': [dict(reservation) for reservation in reservations],
+            'transactions': [dict(transaction) for transaction in transactions]
+        }
+        
+        summary = {
+            'hotel_id': config.hotel_id,
+            'room_number': room_number,
+            'room_id': room_info['id'],
+            'report_type': config.report_type.value,
+            'time_period': config.time_period.value,
+            'start_date': start_date,
+            'end_date': end_date,
+            'total_nights': total_nights,
+            'total_guests': total_guests,
+            'total_revenue': round(total_revenue, 2),
+            'occupancy_rate': round((total_nights / (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days * 100), 2) if start_date != end_date else 100 if total_nights > 0 else 0
+        }
+        
+        return data, summary
     
     # Utility methods
     
@@ -1072,12 +1246,114 @@ class HotelReportingSystem:
             output.append("OCCUPANCY ANALYSIS REPORT")
             output.append(f"Period: {report.data['period']['start_date']} to {report.data['period']['end_date']}")
             output.append(f"Average Stay Length: {report.data['average_stay_length']:.1f} days")
+
+        elif report.report_type == ReportType.ROOM_SPECIFIC_REPORT:
+            return self._display_room_specific_text(report)
             
         # Add summary section
         output.append("\nSUMMARY:")
         for key, value in report.summary.items():
             output.append(f"  {key}: {value}")
             
+        return "\n".join(output)
+    
+    def _display_room_specific_text(self, report: ReportResult) -> str:
+        """Display room-specific report in text format"""
+        output = []
+        output.append("ROOM-SPECIFIC REPORT")
+        output.append("=" * 60)
+        
+        # Room information
+        room_info = report.data['room_info']
+        output.append(f"Room: {room_info['room_number']} ({room_info['room_type']})")
+        output.append(f"Status: {room_info['status']}")
+        output.append(f"Price: ${room_info['price_per_night']}/night")
+        output.append(f"Max Occupancy: {room_info['max_occupancy']} guests")
+        
+        # Date range
+        date_range = report.data['date_range']
+        output.append(f"\nDate Range: {date_range['start_date']} to {date_range['end_date']}")
+        
+        # Summary statistics
+        summary = report.summary
+        output.append(f"\nSUMMARY:")
+        output.append(f"  Total Nights Occupied: {summary['total_nights']}")
+        output.append(f"  Total Guests: {summary['total_guests']}")
+        output.append(f"  Total Revenue: ${summary['total_revenue']:.2f}")
+        output.append(f"  Occupancy Rate: {summary['occupancy_rate']:.1f}%")
+        
+        # Daily breakdown
+        output.append(f"\nDAILY BREAKDOWN:")
+        output.append("=" * 60)
+        
+        daily_data = report.data['daily_breakdown']
+        
+        # Only show days with activity to reduce clutter
+        days_with_activity = []
+        for date, day_data in sorted(daily_data.items()):
+            if day_data['guests'] or day_data['transactions']:
+                days_with_activity.append((date, day_data))
+        
+        if days_with_activity:
+            output.append(f"\n📅 Days with activity ({len(days_with_activity)} total):")
+            output.append("-" * 60)
+            
+            for date, day_data in days_with_activity:
+                output.append(f"\n📅 {date}:")
+                output.append(f"  🏠 Status: {day_data['occupancy_status']}")
+                output.append(f"  💰 Revenue: ${day_data['revenue']:.2f}")
+                
+                if day_data['guests']:
+                    output.append(f"  👥 Guests ({len(day_data['guests'])}):")
+                    for guest in day_data['guests']:
+                        output.append(f"    • {guest['guest_name']}")
+                        output.append(f"      Reservation: #{guest['reservation_id']}")
+                        output.append(f"      Stay: {guest['check_in']} → {guest['check_out']}")
+                        output.append(f"      Status: [{guest['status']}]")
+                else:
+                    output.append(f"  👥 Guests: None")
+                
+                if day_data['transactions']:
+                    output.append(f"  💳 Transactions ({len(day_data['transactions'])}):")
+                    for transaction in day_data['transactions']:
+                        output.append(f"    • Amount: ${transaction['amount']:.2f}")
+                        if 'transaction_type' in transaction:
+                            output.append(f"      Type: {transaction['transaction_type']}")
+                        if 'description' in transaction:
+                            output.append(f"      Description: {transaction['description']}")
+                        if 'payment_method' in transaction:
+                            output.append(f"      Payment: {transaction['payment_method']}")
+                else:
+                    output.append(f"  💳 Transactions: None")
+        else:
+            output.append(f"\n📅 No activity found in the date range")
+        
+        # Detailed reservations
+        if report.data['reservations']:
+            output.append(f"\nDETAILED RESERVATIONS:")
+            output.append("-" * 60)
+            for reservation in report.data['reservations']:
+                output.append(f"\nReservation #{reservation['reservation_id']}:")
+                output.append(f"  Guest: {reservation['first_name']} {reservation['last_name']}")
+                output.append(f"  Contact: {reservation['email']} / {reservation['phone']}")
+                output.append(f"  Dates: {reservation['check_in_date']} → {reservation['check_out_date']}")
+                output.append(f"  Status: {reservation['reservation_status']}")
+                output.append(f"  Total Price: ${reservation['total_price']:.2f}")
+        
+        # Detailed transactions
+        if report.data['transactions']:
+            output.append(f"\nDETAILED TRANSACTIONS:")
+            output.append("-" * 60)
+            for transaction in report.data['transactions']:
+                output.append(f"\nTransaction #{transaction['transaction_id']}:")
+                output.append(f"  Date: {transaction['transaction_date']}")
+                output.append(f"  Amount: ${transaction['amount']:.2f}")
+                if 'transaction_type' in transaction:
+                    output.append(f"  Type: {transaction['transaction_type']}")
+                output.append(f"  Description: {transaction['description']}")
+                output.append(f"  Payment Method: {transaction['payment_method']}")
+                output.append(f"  Reservation: #{transaction['reservation_id']}")
+        
         return "\n".join(output)
     
     def _display_csv_report(self, report: ReportResult) -> str:

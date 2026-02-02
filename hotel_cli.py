@@ -2,11 +2,11 @@ import argparse
 import sys
 import cmd
 import readline
+from datetime import datetime, timedelta
 from hotel_simulator import HotelSimulator
 from database import HotelDatabase
 from simulation_engine import HotelSimulationEngine
 from reporting_system import HotelReportingSystem, ReportConfig, ReportType, TimePeriod
-from datetime import datetime
 class HotelCLI(cmd.Cmd):
     """Interactive command-line interface for Hotel Simulator"""
     
@@ -360,6 +360,73 @@ class HotelCLI(cmd.Cmd):
             print(self.reporter.display_report(report))
         except Exception as e:
             print(f"Error: {e}")
+    
+    def do_room_report(self, arg):
+        """Generate room-specific report: room_report <hotel_id> <room_number> [YYYY-MM-DD] [YYYY-MM-DD]"""
+        try:
+            args = arg.split()
+            if len(args) < 2:
+                print("Usage: room_report <hotel_id> <room_number> [start_date] [end_date]")
+                print("Example: room_report 1 101 2026-01-01 2026-01-31")
+                print("Example: room_report 1 101 2026-01-15  # Single date")
+                return
+             
+            hotel_id = int(args[0])
+            room_number = args[1]  # Use room number instead of room ID
+             
+            # Parse date parameters
+            start_date = None
+            end_date = None
+             
+            if len(args) >= 3:
+                # Check if third argument is a date or 'today'
+                if args[2].lower() in ['today', 'current']:
+                    start_date = datetime.now().strftime('%Y-%m-%d')
+                    end_date = start_date
+                else:
+                    try:
+                        datetime.strptime(args[2], '%Y-%m-%d')
+                        start_date = args[2]
+                        end_date = args[2]  # Single date
+                    except ValueError:
+                        print(f"❌ Invalid date format: {args[2]}")
+                        print("📅 Date should be in YYYY-MM-DD format. Example: 2026-02-01")
+                        return
+             
+            if len(args) >= 4:
+                try:
+                    datetime.strptime(args[3], '%Y-%m-%d')
+                    end_date = args[3]
+                except ValueError:
+                    print(f"❌ Invalid date format: {args[3]}")
+                    print("📅 Date should be in YYYY-MM-DD format. Example: 2026-02-01")
+                    return
+             
+            # Validate dates
+            if start_date and end_date and start_date > end_date:
+                print("❌ Start date cannot be after end date")
+                return
+             
+            # Create report configuration
+            time_period = TimePeriod.CUSTOM if (start_date and end_date and start_date != end_date) else TimePeriod.DAILY
+             
+            config = ReportConfig(
+                report_type=ReportType.ROOM_SPECIFIC_REPORT,
+                time_period=time_period,
+                hotel_id=hotel_id,
+                room_number=room_number,
+                start_date=start_date,
+                end_date=end_date,
+                specific_date=start_date if time_period == TimePeriod.DAILY else None
+            )
+             
+            # Generate report
+            report = self.reporter.generate_report(config)
+            result = self.reporter.display_report(report, "text")
+            print(result)
+             
+        except Exception as e:
+            print(f"❌ Error: {e}")
     
     def do_create_hotel_interactive(self, arg):
         """Interactive hotel creation wizard - guides you through creating a complete hotel with rooms, floors, and pricing"""
@@ -824,6 +891,13 @@ def main():
     # Increase all prices by percentage
     increase_parser = subparsers.add_parser('increase-prices', help='Increase all room prices by percentage')
     increase_parser.add_argument('--hotel-id', type=int, required=True, help='Hotel ID')
+    # Room-specific report
+    room_report_parser = subparsers.add_parser('room-report', help='Generate room-specific report')
+    room_report_parser.add_argument('--hotel-id', type=int, required=True, help='Hotel ID')
+    room_report_parser.add_argument('--room-number', required=True, help='Room number (e.g., 101)')
+    room_report_parser.add_argument('--start-date', help='Start date (YYYY-MM-DD)')
+    room_report_parser.add_argument('--end-date', help='End date (YYYY-MM-DD)')
+    
     # Delete hotel
     delete_parser = subparsers.add_parser('delete', help='Delete a hotel')
     delete_parser.add_argument('--hotel-id', type=int, required=True, help='Hotel ID to delete')
@@ -919,6 +993,50 @@ def main():
         with HotelDatabase() as db:
             updated_count = db.increase_prices_by_percentage(args.hotel_id, args.percentage)
             print(f'Increased prices for {updated_count} rooms by {args.percentage}%')
+    elif args.command == 'room-report':
+        # Room-specific report
+        with HotelDatabase() as db:
+            # Validate hotel and room exist
+            room_info = db.execute_query(
+                "SELECT r.id, r.room_number, r.hotel_id FROM rooms r WHERE r.room_number = ? AND r.hotel_id = ?",
+                (args.room_number, args.hotel_id),
+                fetch=True
+            )
+            
+            if not room_info:
+                print(f'Room {args.room_number} not found in hotel {args.hotel_id}')
+                return
+            
+            # Create reporting system
+            reporter = HotelReportingSystem()
+            
+            # Determine time period
+            if args.start_date and args.end_date:
+                time_period = TimePeriod.CUSTOM
+            elif args.start_date:
+                time_period = TimePeriod.DAILY
+            else:
+                time_period = TimePeriod.CUSTOM
+                # Default to last 30 days
+                args.start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+                args.end_date = datetime.now().strftime('%Y-%m-%d')
+            
+            # Create report configuration
+            config = ReportConfig(
+                report_type=ReportType.ROOM_SPECIFIC_REPORT,
+                time_period=time_period,
+                hotel_id=args.hotel_id,
+                room_number=args.room_number,
+                start_date=args.start_date,
+                end_date=args.end_date,
+                specific_date=args.start_date if time_period == TimePeriod.DAILY else None
+            )
+            
+            # Generate and display report
+            report = reporter.generate_report(config)
+            result = reporter.display_report(report, "text")
+            print(result)
+    
     elif args.command == 'delete':
         # Delete hotel
         with HotelDatabase() as db:
