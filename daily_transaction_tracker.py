@@ -157,10 +157,29 @@ class DailyTransactionTracker:
                 if is_reserved:
                     room_detail.status = 'reserved'
                 else:
-                    # Only use database status if it's not occupied (to handle maintenance, etc.)
-                    if room['status'] == 'occupied':
-                        room_detail.status = 'available'  # Override incorrect occupied status
+                    # Check if room had any activity today (check-ins/outs)
+                    had_activity = self._room_had_activity_today(room['id'], date)
+                    if had_activity:
+                        room_detail.status = 'occupied'  # Room was occupied during the day
+                        # Try to get checkout guest information for rooms that checked out today
+                        checkout_guest = self._get_checkout_guest_for_room(room['id'], date)
+                        if checkout_guest:
+                            room_detail.guest_name = f"{checkout_guest['first_name']} {checkout_guest['last_name']}"
+                            room_detail.reservation_id = checkout_guest['reservation_id']
+                            room_detail.check_in_date = checkout_guest['check_in_date']
+                            room_detail.check_out_date = checkout_guest['check_out_date']
+                            # Calculate daily rate
+                            try:
+                                check_in = datetime.datetime.strptime(checkout_guest['check_in_date'], '%Y-%m-%d')
+                                check_out = datetime.datetime.strptime(checkout_guest['check_out_date'], '%Y-%m-%d')
+                                nights = (check_out - check_in).days
+                                if nights > 0:
+                                    # This is a simplified rate calculation - in a real system you'd get the actual room rate
+                                    room_detail.daily_rate = 220.00  # Default standard room rate
+                            except:
+                                room_detail.daily_rate = 220.00  # Fallback rate
                     else:
+                        # Use database status for other cases (maintenance, etc.)
                         room_detail.status = room['status']
             
             # Get transactions for this room on this date
@@ -245,17 +264,25 @@ class DailyTransactionTracker:
             results = self.db.execute_query(query, (hotel_id,), fetch=True)
             status_counts = {row['status']: row['count'] for row in results}
             
-            # Get count of actually occupied rooms (with checked-in guests)
+            # Get count of actually occupied rooms (with checked-in guests OR today's activity)
+            # For transaction reports, we want to show rooms that were occupied during the day
             occupied_query = """
-                SELECT COUNT(DISTINCT r.room_id) as occupied
-                FROM reservations r
-                JOIN rooms rm ON r.room_id = rm.id
+                SELECT COUNT(DISTINCT rm.id) as occupied
+                FROM rooms rm
+                LEFT JOIN reservations r ON rm.id = r.room_id
                 WHERE rm.hotel_id = ?
-                AND r.status = 'checked_in'
-                AND r.check_in_date <= ?
-                AND r.check_out_date >= ?
+                AND (
+                    -- Currently checked-in guests
+                    (r.status = 'checked_in' AND r.check_in_date <= ? AND r.check_out_date >= ?)
+                    OR
+                    -- Rooms with check-in/out activity today
+                    (r.status IN ('checked_in', 'checked_out') AND (r.check_in_date = ? OR r.check_out_date = ?))
+                    OR
+                    -- Multi-day stays (checked in before, checking out after)
+                    (r.status = 'checked_in' AND r.check_in_date < ? AND r.check_out_date > ?)
+                )
             """
-            occupied_result = self.db.execute_query(occupied_query, (hotel_id, date, date), fetch=True)
+            occupied_result = self.db.execute_query(occupied_query, (hotel_id, date, date, date, date, date, date), fetch=True)
             actual_occupied = occupied_result[0]['occupied'] if occupied_result else 0
             
             # Override the occupied count with the actual count
@@ -494,6 +521,39 @@ class DailyTransactionTracker:
             print(f"Error checking room reservation: {e}")
             return False
 
+    def _room_had_activity_today(self, room_id: int, date: str) -> bool:
+        """Check if a room had activity today (check-in/out) or is occupied by multi-day stay"""
+        try:
+            # Check for check-in/out activity today
+            activity_query = """
+                SELECT COUNT(*) as count
+                FROM reservations 
+                WHERE room_id = ? 
+                AND (check_in_date = ? OR check_out_date = ?)
+                AND status IN ('checked_in', 'checked_out')
+            """
+            activity_result = self.db.execute_query(activity_query, (room_id, date, date), fetch=True)
+            
+            if activity_result[0]['count'] > 0:
+                return True
+            
+            # Check for multi-day stays (checked in before, checking out after)
+            multi_day_query = """
+                SELECT COUNT(*) as count
+                FROM reservations 
+                WHERE room_id = ? 
+                AND status = 'checked_in'
+                AND check_in_date < ?
+                AND check_out_date > ?
+            """
+            multi_day_result = self.db.execute_query(multi_day_query, (room_id, date, date), fetch=True)
+            
+            return multi_day_result[0]['count'] > 0
+            
+        except Exception as e:
+            print(f"Error checking room activity: {e}")
+            return False
+
     def _get_current_guest_for_room(self, room_id: int, date: str) -> Optional[Dict]:
         """Get current guest information for a room"""
         try:
@@ -513,7 +573,28 @@ class DailyTransactionTracker:
         except Exception as e:
             print(f"Error getting current guest: {e}")
             return None
-    
+
+    def _get_checkout_guest_for_room(self, room_id: int, date: str) -> Optional[Dict]:
+        """Get guest information for rooms that checked out today"""
+        try:
+            query = """
+                SELECT 
+                    g.first_name, g.last_name, r.id as reservation_id,
+                    r.check_in_date, r.check_out_date
+                FROM guests g
+                JOIN reservations r ON g.id = r.guest_id
+                WHERE r.room_id = ?
+                AND r.check_out_date = ?
+                AND r.status = 'checked_out'
+                ORDER BY r.id DESC
+                LIMIT 1
+            """
+            results = self.db.execute_query(query, (room_id, date), fetch=True)
+            return results[0] if results else None
+        except Exception as e:
+            print(f"Error getting checkout guest: {e}")
+            return None
+
     def _get_room_transactions(self, room_id: int, date: str) -> List[Dict]:
         """Get all transactions for a room on a specific date"""
         try:
