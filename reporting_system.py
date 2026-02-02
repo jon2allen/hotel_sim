@@ -135,9 +135,74 @@ class HotelReportingSystem:
     
     # Private methods for specific report types
     
+    def _synchronize_room_reservation_statuses(self, hotel_id: int, current_date: str):
+        """Synchronize room statuses with reservation statuses to ensure consistency"""
+        cursor = self.conn.cursor()
+        
+        try:
+            # Fix rooms that should be available (no current checked-in reservations)
+            cursor.execute("""
+                UPDATE rooms 
+                SET status = 'available' 
+                WHERE id IN (
+                    SELECT rm.id 
+                    FROM rooms rm
+                    LEFT JOIN reservations r ON rm.id = r.room_id 
+                        AND r.status = 'checked_in'
+                        AND r.check_in_date <= ?
+                        AND r.check_out_date >= ?
+                    WHERE rm.hotel_id = ?
+                    AND rm.status = 'occupied'
+                    AND r.id IS NULL
+                )
+            """, (current_date, current_date, hotel_id))
+            
+            # Fix rooms that should be occupied (have current checked-in reservations)
+            cursor.execute("""
+                UPDATE rooms 
+                SET status = 'occupied' 
+                WHERE id IN (
+                    SELECT rm.id 
+                    FROM rooms rm
+                    JOIN reservations r ON rm.id = r.room_id
+                    WHERE rm.hotel_id = ?
+                    AND rm.status != 'occupied'
+                    AND r.status = 'checked_in'
+                    AND r.check_in_date <= ?
+                    AND r.check_out_date >= ?
+                )
+            """, (hotel_id, current_date, current_date))
+            
+            # Fix rooms that should be reserved (have future confirmed reservations)
+            cursor.execute("""
+                UPDATE rooms 
+                SET status = 'reserved' 
+                WHERE id IN (
+                    SELECT rm.id 
+                    FROM rooms rm
+                    JOIN reservations r ON rm.id = r.room_id
+                    WHERE rm.hotel_id = ?
+                    AND rm.status = 'available'
+                    AND r.status = 'confirmed'
+                    AND r.check_in_date > ?
+                )
+            """, (hotel_id, current_date))
+            
+            self.conn.commit()
+            
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error synchronizing room/reservation statuses: {e}")
+
     def _generate_daily_status_report(self, config: ReportConfig) -> tuple:
         """Generate daily status report"""
         cursor = self.conn.cursor()
+        
+        # Get date for daily report (use specific_date if provided, otherwise today)
+        current_date = config.specific_date if config.specific_date else datetime.now().strftime('%Y-%m-%d')
+        
+        # First, synchronize room and reservation statuses to ensure data consistency
+        self._synchronize_room_reservation_statuses(config.hotel_id, current_date)
         
         # Get hotel info
         cursor.execute("""
@@ -146,9 +211,6 @@ class HotelReportingSystem:
             WHERE id = ?
         """, (config.hotel_id,))
         hotel_info = cursor.fetchone()
-        
-        # Get date for daily report (use specific_date if provided, otherwise today)
-        current_date = config.specific_date if config.specific_date else datetime.now().strftime('%Y-%m-%d')
         
         # Get room status counts
         cursor.execute("""
@@ -176,6 +238,43 @@ class HotelReportingSystem:
             AND (check_in_date <= ? AND check_out_date >= ?)
         """, (config.hotel_id, current_date, current_date))
         reservation_stats = cursor.fetchone()
+        
+        # Get today's actual check-ins (reservations that were checked in today)
+        cursor.execute("""
+            SELECT COUNT(*) as today_check_ins
+            FROM reservations 
+            WHERE room_id IN (
+                SELECT id FROM rooms WHERE hotel_id = ?
+            )
+            AND status = 'checked_in'
+            AND check_in_date = ?
+        """, (config.hotel_id, current_date))
+        today_check_ins = cursor.fetchone()['today_check_ins']
+        
+        # Get today's actual check-outs (reservations that were checked out today)
+        cursor.execute("""
+            SELECT COUNT(*) as today_check_outs
+            FROM reservations 
+            WHERE room_id IN (
+                SELECT id FROM rooms WHERE hotel_id = ?
+            )
+            AND status = 'checked_out'
+            AND check_out_date = ?
+        """, (config.hotel_id, current_date))
+        today_check_outs = cursor.fetchone()['today_check_outs']
+        
+        # Get current guests (reservations that are checked in and overlap with today)
+        cursor.execute("""
+            SELECT COUNT(*) as current_guests
+            FROM reservations 
+            WHERE room_id IN (
+                SELECT id FROM rooms WHERE hotel_id = ?
+            )
+            AND status = 'checked_in'
+            AND check_in_date <= ?
+            AND check_out_date >= ?
+        """, (config.hotel_id, current_date, current_date))
+        current_guests = cursor.fetchone()['current_guests']
         
         # Get housekeeping status
         cursor.execute("""
@@ -208,9 +307,9 @@ class HotelReportingSystem:
             'reserved_rooms': room_status.get('reserved', 0),
             'maintenance_rooms': room_status.get('maintenance', 0),
             'occupancy_rate': (room_status.get('occupied', 0) / hotel_info['total_rooms']) * 100 if hotel_info['total_rooms'] > 0 else 0,
-            'current_guests': reservation_stats['checked_in'],
-            'check_ins_today': reservation_stats['checked_in'],
-            'check_outs_today': reservation_stats['checked_out'],
+            'current_guests': current_guests,
+            'check_ins_today': today_check_ins,
+            'check_outs_today': today_check_outs,
             'new_reservations': reservation_stats['confirmed'],
             'cancellations': reservation_stats['cancelled']
         }
