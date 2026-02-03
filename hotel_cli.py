@@ -3,7 +3,7 @@ import sys
 import cmd
 import readline
 from datetime import datetime, timedelta
-from hotel_simulator import HotelSimulator
+from hotel_simulator import HotelSimulator, ReservationSystem
 from database import HotelDatabase
 from simulation_engine import HotelSimulationEngine
 from reporting_system import HotelReportingSystem, ReportConfig, ReportType, TimePeriod
@@ -18,6 +18,7 @@ class HotelCLI(cmd.Cmd):
         self.db = HotelDatabase()
         self.simulator = HotelSimulator()
         self.reporter = HotelReportingSystem()
+        self.res_system = ReservationSystem(self.db)
         
     def do_create_hotel(self, arg):
         """Create a new hotel: create_hotel <name> <address> <stars> <floors> <rooms>"""
@@ -270,6 +271,45 @@ class HotelCLI(cmd.Cmd):
             print(f"Booking created with ID: {booking_id}")
         except Exception as e:
             print(f"Error: {e}")
+
+    def do_check_in(self, arg):
+        """Process guest check-in: check_in <reservation_id>"""
+        try:
+            if not arg:
+                print("Usage: check_in <reservation_id>")
+                return
+            
+            res_id = int(arg)
+            if self.res_system.check_in(res_id):
+                print(f"✅ Checked in reservation #{res_id}")
+            else:
+                print(f"❌ Check-in failed for reservation #{res_id}")
+                
+        except ValueError:
+            print("❌ Invalid reservation ID. Please provide a numeric ID.")
+        except Exception as e:
+            print(f"❌ Error during check-in: {e}")
+
+    def do_check_out(self, arg):
+        """Process guest check-out: check_out <reservation_id>"""
+        try:
+            if not arg:
+                print("Usage: check_out <reservation_id>")
+                return
+            
+            res_id = int(arg)
+            success, final_amount = self.res_system.check_out(res_id)
+            
+            if success:
+                print(f"✅ Checked out reservation #{res_id}")
+                print(f"💰 Final charges: ${final_amount:.2f}")
+            else:
+                print(f"❌ Check-out failed for reservation #{res_id}")
+                
+        except ValueError:
+            print("❌ Invalid reservation ID. Please provide a numeric ID.")
+        except Exception as e:
+            print(f"❌ Error during check-out: {e}")
     
     def do_run_simulation(self, arg):
         """Run simulation: run_simulation <hotel_id> <days>"""
@@ -427,6 +467,67 @@ class HotelCLI(cmd.Cmd):
              
         except Exception as e:
             print(f"❌ Error: {e}")
+
+    def do_list_reservations(self, arg):
+        """List all reservations: list_reservations [hotel_id]"""
+        try:
+            # Query joining reservations, rooms, hotel, and guests
+            query = """
+                SELECT 
+                    r.id, 
+                    h.id as hotel_id, 
+                    h.name as hotel_name, 
+                    g.first_name || ' ' || g.last_name as guest_name,
+                    rm.room_number,
+                    r.check_in_date,
+                    r.check_out_date,
+                    r.status
+                FROM reservations r
+                JOIN rooms rm ON r.room_id = rm.id
+                JOIN hotel h ON rm.hotel_id = h.id
+                JOIN guests g ON r.guest_id = g.id
+            """
+            params = []
+            
+            # Optional: Filter by hotel_id if provided as an argument
+            if arg:
+                try:
+                    query += " WHERE h.id = ?"
+                    params.append(int(arg))
+                except ValueError:
+                    print("❌ Invalid hotel ID. Please provide a numeric ID.")
+                    return
+            
+            query += " ORDER BY r.id DESC"
+            
+            reservations = self.db.execute_query(query, tuple(params) if params else None, fetch=True)
+            
+            if not reservations:
+                print("No reservations found.")
+                return
+            # Print Header
+            print(f"\n{'ID':<5} {'Hotel (ID)':<25} {'Guest':<20} {'Room':<10} {'Dates':<23} {'Status':<10}")
+            print("-" * 95)
+            
+            # Print Rows
+            for res in reservations:
+                hotel_display = f"{res['hotel_name']} ({res['hotel_id']})"
+                dates_display = f"{res['check_in_date']} -> {res['check_out_date']}"
+                
+                # Apply simple status indicator
+                status = res['status'].upper()
+                if status == 'CHECKED_IN':
+                    status = f"🟢 {status}"
+                elif status == 'CHECKED_OUT':
+                    status = f"⚪ {status}"
+                elif status == 'CANCELLED':
+                    status = f"🔴 {status}"
+                else:
+                    status = f"🔵 {status}"
+                print(f"{res['id']:<5} {hotel_display[:24]:<25} {res['guest_name'][:19]:<20} {res['room_number']:<10} {dates_display:<23} {status}")
+                
+        except Exception as e:
+            print(f"❌ Error listing reservations: {e}")
     
     def do_create_hotel_interactive(self, arg):
         """Interactive hotel creation wizard - guides you through creating a complete hotel with rooms, floors, and pricing"""
