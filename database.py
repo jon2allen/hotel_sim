@@ -105,8 +105,11 @@ class HotelDatabase:
                     first_name TEXT NOT NULL,
                     last_name TEXT NOT NULL,
                     email TEXT,
-                    phone TEXT,
+                    phone TEXT,  -- Cell/mobile number only
                     address TEXT,
+                    car_make TEXT,
+                    car_model TEXT,
+                    car_color TEXT,
                     loyalty_points INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )''',

@@ -49,13 +49,29 @@ class TransactionType(Enum):
 
 @dataclass
 class Guest:
-    """Represents a hotel guest"""
+    """Represents a hotel guest
+    
+    Attributes:
+        id: Unique guest identifier
+        first_name: Guest's first name
+        last_name: Guest's last name
+        email: Guest's email address
+        phone: Guest's cell/mobile phone number (cell numbers only)
+        address: Guest's physical address
+        car_make: Vehicle manufacturer (optional, can be N/A)
+        car_model: Vehicle model (optional, can be N/A)
+        car_color: Vehicle color (optional, can be N/A)
+        loyalty_points: Accumulated loyalty points
+    """
     id: Optional[int] = None
     first_name: str = ""
     last_name: str = ""
     email: str = ""
-    phone: str = ""
+    phone: str = ""  # Cell/mobile number only
     address: str = ""
+    car_make: str = ""
+    car_model: str = ""
+    car_color: str = ""
     loyalty_points: int = 0
 
 
@@ -154,26 +170,27 @@ class HotelSimulator:
             return False
     
     def create_guest(self, first_name: str, last_name: str, email: str = "", 
-                    phone: str = "", address: str = "") -> Guest:
+                    phone: str = "", address: str = "", car_make: str = "",
+                    car_model: str = "", car_color: str = "") -> Guest:
         """Create a new guest and add to database
         
         Args:
             first_name: Guest's first name
             last_name: Guest's last name
             email: Guest's email
-            phone: Guest's phone number
-            address: Guest's address
+            phone: Guest's cell/mobile phone number (cell numbers only)
+            address: Guest's physical address
             
         Returns:
             Created Guest object with ID
         """
         try:
             query = """
-                INSERT INTO guests (first_name, last_name, email, phone, address)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO guests (first_name, last_name, email, phone, address, car_make, car_model, car_color)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """
             cursor = self.db.conn.cursor()
-            cursor.execute(query, (first_name, last_name, email, phone, address))
+            cursor.execute(query, (first_name, last_name, email, phone, address, car_make, car_model, car_color))
             self.db.conn.commit()
             guest_id = cursor.lastrowid
             
@@ -183,7 +200,10 @@ class HotelSimulator:
                 last_name=last_name,
                 email=email,
                 phone=phone,
-                address=address
+                address=address,
+                car_make=car_make,
+                car_model=car_model,
+                car_color=car_color
             )
             
             self.guests[guest_id] = guest
