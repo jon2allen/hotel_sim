@@ -7,7 +7,7 @@ Interactive wizard for finding and checking in guests
 import sys
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
-from hotel_simulator import HotelSimulator
+from hotel_simulator import HotelSimulator, ReservationSystem
 from database import HotelDatabase
 
 
@@ -18,6 +18,7 @@ class CheckinWizard:
         """Initialize the check-in wizard"""
         self.sim = HotelSimulator(db_path)
         self.db = HotelDatabase(db_path)
+        self.res_system = ReservationSystem(self.db)
     
     def search_reservations_wizard(self) -> List[Dict]:
         """Interactive wizard to search for reservations by name, date, and hotel"""
@@ -171,7 +172,7 @@ class CheckinWizard:
                 return False
             
             # Perform check-in
-            success = self.sim.check_in(reservation_id)
+            success = self.res_system.check_in(reservation_id)
             
             if success:
                 print(f"✅ Successfully checked in reservation {reservation_id}")
