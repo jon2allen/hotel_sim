@@ -177,8 +177,63 @@ class CheckinWizard:
             if success:
                 print(f"✅ Successfully checked in reservation {reservation_id}")
                 
-
-                # Get guest and room details for confirmation
+                # Collect additional guest information for check-in
+                print(f"\n" + "=" * 60)
+                print("ADDITIONAL GUEST INFORMATION FOR CHECK-IN")
+                print("=" * 60)
+                print("Please provide any additional information for the guest.")
+                print("(Press Enter to skip optional fields)")
+                
+                # Get current guest info
+                guest = self.db.get_guest_by_id(reservation['guest_id'])
+                
+                # Address information
+                print(f"\nADDRESS INFORMATION:")
+                print("-" * 40)
+                current_address = guest.get('address', '') if guest else ''
+                if current_address:
+                    print(f"Current address: {current_address}")
+                address = input("Full Address (optional): ").strip() or current_address
+                
+                # Vehicle information
+                print(f"\nVEHICLE INFORMATION:")
+                print("-" * 40)
+                print("Enter vehicle details or leave blank if no vehicle")
+                
+                current_car_make = guest.get('car_make', '') if guest else ''
+                current_car_model = guest.get('car_model', '') if guest else ''
+                current_car_color = guest.get('car_color', '') if guest else ''
+                
+                if current_car_make or current_car_model or current_car_color:
+                    vehicle_info = []
+                    if current_car_make:
+                        vehicle_info.append(f"Make: {current_car_make}")
+                    if current_car_model:
+                        vehicle_info.append(f"Model: {current_car_model}")
+                    if current_car_color:
+                        vehicle_info.append(f"Color: {current_car_color}")
+                    print(f"Current vehicle: {', '.join(vehicle_info)}")
+                
+                car_make = input("Car Make (optional): ").strip() or current_car_make
+                car_model = input("Car Model (optional): ").strip() or current_car_model
+                car_color = input("Car Color (optional): ").strip() or current_car_color
+                
+                # Update guest with additional information
+                update_data = {}
+                if address != current_address:
+                    update_data['address'] = address
+                if car_make != current_car_make:
+                    update_data['car_make'] = car_make
+                if car_model != current_car_model:
+                    update_data['car_model'] = car_model
+                if car_color != current_car_color:
+                    update_data['car_color'] = car_color
+                
+                if update_data:
+                    self.db.update_guest(reservation['guest_id'], **update_data)
+                    print("✅ Guest information updated successfully!")
+                
+                # Get updated guest and room details for confirmation
                 guest = self.db.get_guest_by_id(reservation['guest_id'])
                 room = self.db.get_room_by_id(reservation['room_id'])
                 # Get hotel_id from room data and then get hotel info
@@ -193,6 +248,22 @@ class CheckinWizard:
                 print(f"   Guest:      {guest_name}")
                 print(f"   Hotel:      {hotel_name}")
                 print(f"   Room:       {room_info}")
+                
+                # Add address information if available
+                if guest.get('address'):
+                    print(f"   Address:    {guest['address']}")
+                
+                # Add vehicle information if available
+                vehicle_info = []
+                if guest.get('car_make'):
+                    vehicle_info.append(guest['car_make'])
+                if guest.get('car_model'):
+                    vehicle_info.append(guest['car_model'])
+                if guest.get('car_color'):
+                    vehicle_info.append(guest['car_color'])
+                
+                if vehicle_info:
+                    print(f"   Vehicle:    {' '.join(vehicle_info)}")
                 print(f"   Check-in:   {reservation['check_in_date']}")
                 print(f"   Check-out:  {reservation['check_out_date']}")
                 

@@ -391,6 +391,37 @@ class HotelDatabase:
         results = self.execute_query(query, (guest_id,), fetch=True)
         return results[0] if results else None
 
+    def update_guest(self, guest_id: int, **kwargs) -> bool:
+        """Update guest information by ID
+        
+        Args:
+            guest_id: ID of the guest to update
+            **kwargs: Guest fields to update (e.g., address, car_make, car_model, car_color)
+            
+        Returns:
+            True if update was successful, False otherwise
+        """
+        try:
+            if not kwargs:
+                return False
+            
+            # Build SET clause
+            set_clauses = []
+            values = []
+            
+            for field, value in kwargs.items():
+                set_clauses.append(f"{field} = ?")
+                values.append(value)
+            
+            values.append(guest_id)  # For WHERE clause
+            
+            query = f"UPDATE guests SET {', '.join(set_clauses)} WHERE id = ?"
+            self.execute_query(query, tuple(values))
+            return True
+        except Exception as e:
+            print(f"Error updating guest: {e}")
+            return False
+
     def get_room_by_id(self, room_id: int) -> Optional[Dict[str, Any]]:
         """Get room information by ID"""
         query = "SELECT * FROM rooms WHERE id = ?"
