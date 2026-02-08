@@ -862,6 +862,39 @@ class HotelCLI(cmd.Cmd):
         except Exception as e:
             print(f"❌ Error in guest wizard: {e}")
     
+    def do_search_checkins(self, arg):
+        """Search for reservations to check in: search_checkins"""
+        try:
+            from checkin_wizard import CheckinWizard
+            wizard = CheckinWizard()
+            wizard.search_reservations_wizard()
+        except ImportError:
+            print("❌ Check-in wizard not available. Please ensure checkin_wizard.py is in the same directory.")
+        except Exception as e:
+            print(f"❌ Error in check-in wizard: {e}")
+    
+    def do_interactive_checkin(self, arg):
+        """Interactive check-in process: interactive_checkin"""
+        try:
+            from checkin_wizard import CheckinWizard
+            wizard = CheckinWizard()
+            wizard.interactive_check_in()
+        except ImportError:
+            print("❌ Check-in wizard not available. Please ensure checkin_wizard.py is in the same directory.")
+        except Exception as e:
+            print(f"❌ Error in check-in wizard: {e}")
+    
+    def do_checkin_menu(self, arg):
+        """Open check-in management menu: checkin_menu"""
+        try:
+            from checkin_wizard import CheckinWizard
+            wizard = CheckinWizard()
+            wizard.main_menu()
+        except ImportError:
+            print("❌ Check-in wizard not available. Please ensure checkin_wizard.py is in the same directory.")
+        except Exception as e:
+            print(f"❌ Error in check-in wizard: {e}")
+    
     def do_exit(self, arg):
         """Exit the CLI"""
         print("Goodbye!")
