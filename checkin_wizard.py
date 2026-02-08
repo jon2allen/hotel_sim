@@ -177,10 +177,13 @@ class CheckinWizard:
             if success:
                 print(f"✅ Successfully checked in reservation {reservation_id}")
                 
+
                 # Get guest and room details for confirmation
                 guest = self.db.get_guest_by_id(reservation['guest_id'])
                 room = self.db.get_room_by_id(reservation['room_id'])
-                hotel = self.db.get_hotel_info(reservation['hotel_id'])
+                # Get hotel_id from room data and then get hotel info
+                hotel_id = room['hotel_id'] if room else reservation.get('hotel_id')
+                hotel = self.db.get_hotel_info(hotel_id) if hotel_id else None
                 
                 guest_name = f"{guest['first_name']} {guest['last_name']}" if guest else "Unknown Guest"
                 room_info = f"Room {room['room_number']}" if room else f"Room ID: {reservation['room_id']}"
