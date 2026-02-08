@@ -829,6 +829,39 @@ class HotelCLI(cmd.Cmd):
             print(f"Error during hotel creation: {e}")
             self.db.conn.rollback()
     
+    def do_add_guest(self, arg):
+        """Add a new guest using interactive wizard: add_guest"""
+        try:
+            from guest_wizard import GuestWizard
+            wizard = GuestWizard()
+            wizard.add_guest_wizard()
+        except ImportError:
+            print("❌ Guest wizard not available. Please ensure guest_wizard.py is in the same directory.")
+        except Exception as e:
+            print(f"❌ Error in guest wizard: {e}")
+    
+    def do_search_guests(self, arg):
+        """Search for guests using interactive wizard: search_guests"""
+        try:
+            from guest_wizard import GuestWizard
+            wizard = GuestWizard()
+            wizard.search_guest_wizard()
+        except ImportError:
+            print("❌ Guest wizard not available. Please ensure guest_wizard.py is in the same directory.")
+        except Exception as e:
+            print(f"❌ Error in guest wizard: {e}")
+    
+    def do_guest_menu(self, arg):
+        """Open guest management menu: guest_menu"""
+        try:
+            from guest_wizard import GuestWizard
+            wizard = GuestWizard()
+            wizard.main_menu()
+        except ImportError:
+            print("❌ Guest wizard not available. Please ensure guest_wizard.py is in the same directory.")
+        except Exception as e:
+            print(f"❌ Error in guest wizard: {e}")
+    
     def do_exit(self, arg):
         """Exit the CLI"""
         print("Goodbye!")
