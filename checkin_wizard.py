@@ -70,7 +70,7 @@ class CheckinWizard:
             # Build search query
             query = """
                 SELECT r.id as reservation_id, 
-                       rm.hotel_id, 
+                       rm.hotel_id as hotel_id, 
                        r.room_id, 
                        r.guest_id, 
                        r.check_in_date, 
