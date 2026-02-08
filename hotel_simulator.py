@@ -268,6 +268,39 @@ class HotelSimulator:
         
         return available_rooms
     
+    def get_room_by_id(self, room_id: int) -> Optional[Room]:
+        """Get room information by ID
+        
+        Args:
+            room_id: ID of the room to retrieve
+            
+        Returns:
+            Room object if found, None otherwise
+        """
+        try:
+            query = "SELECT * FROM rooms WHERE id = ?"
+            room_data = self.db.execute_query(query, (room_id,), fetch=True)
+            
+            if not room_data:
+                return None
+            
+            room_data = room_data[0]
+            
+            # Create and return Room object
+            return Room(
+                id=room_data['id'],
+                hotel_id=room_data['hotel_id'],
+                floor_id=room_data['floor_id'],
+                room_number=room_data['room_number'],
+                room_type=room_data.get('room_type', 'Unknown'),
+                status=RoomStatus(room_data['status']),
+                price_per_night=room_data.get('price_per_night', 0.0),
+                max_occupancy=room_data.get('max_occupancy', 2)
+            )
+        except Exception as e:
+            print(f"Error getting room by ID: {e}")
+            return None
+    
     def calculate_reservation_price(self, room: Room, check_in: str, check_out: str) -> float:
         """Calculate total price for a reservation
         
