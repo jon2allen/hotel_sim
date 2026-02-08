@@ -378,6 +378,24 @@ class HotelDatabase:
         query = "SELECT * FROM hotel WHERE id = ?"
         results = self.execute_query(query, (hotel_id,), fetch=True)
         return results[0] if results else None
+
+    def get_reservation_by_id(self, reservation_id: int) -> Optional[Dict[str, Any]]:
+        """Get reservation information by ID"""
+        query = "SELECT * FROM reservations WHERE id = ?"
+        results = self.execute_query(query, (reservation_id,), fetch=True)
+        return results[0] if results else None
+
+    def get_guest_by_id(self, guest_id: int) -> Optional[Dict[str, Any]]:
+        """Get guest information by ID"""
+        query = "SELECT * FROM guests WHERE id = ?"
+        results = self.execute_query(query, (guest_id,), fetch=True)
+        return results[0] if results else None
+
+    def get_room_by_id(self, room_id: int) -> Optional[Dict[str, Any]]:
+        """Get room information by ID"""
+        query = "SELECT * FROM rooms WHERE id = ?"
+        results = self.execute_query(query, (room_id,), fetch=True)
+        return results[0] if results else None
     def delete_hotel(self, hotel_id: int) -> bool:
         """Delete a hotel and all its associated data (floors, rooms, etc.)
         
