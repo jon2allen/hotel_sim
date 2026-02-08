@@ -306,7 +306,7 @@ class ReservationWizard:
             # Build search query
             query = """
                 SELECT r.id as reservation_id, 
-                       r.hotel_id, 
+                       rm.hotel_id, 
                        r.room_id, 
                        r.guest_id, 
                        r.check_in_date, 
@@ -344,7 +344,7 @@ class ReservationWizard:
             
             # Add hotel condition
             if hotel_id is not None:
-                query += " AND r.hotel_id = ?"
+                query += " AND rm.hotel_id = ?"
                 params.append(hotel_id)
             
             query += " ORDER BY r.check_in_date, h.name, g.last_name, g.first_name"
