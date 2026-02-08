@@ -171,7 +171,7 @@ class CheckinWizard:
                 return False
             
             # Perform check-in
-            success = self.sim.check_in_reservation(reservation_id)
+            success = self.sim.check_in(reservation_id)
             
             if success:
                 print(f"✅ Successfully checked in reservation {reservation_id}")
